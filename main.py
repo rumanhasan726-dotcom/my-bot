@@ -1,6 +1,20 @@
 import telebot
 from telebot import types
 import re
+from flask import Flask
+import threading
+import os
+
+# ---------------- WEB SERVER FOR RENDER (FREE WEB SERVICE) ----------------
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running live!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 # ---------------- CONFIGURATION ----------------
 TOKEN = "8965009856:AAEBSRHIuXA-jUGXMZLXiKa2mt2rsLdlcus"
@@ -266,7 +280,7 @@ def handle_message(message):
         try:
             amount = float(text)
         except ValueError:
-            bot.send_message(chat_id, "❌ দয়া করে শুধুমাত্র সংখ্যায় টাকার পরিমাণ লিখুন (যেমন: 100)।")
+            bot.send_message(chat_id, "❌ দয়া করে শুধুমাত্র সংখ্যায় টাকার পরিমাণ লিখুন (যেমন: 100).")
             return
 
         balance = users[user_id]["balance"]
@@ -342,7 +356,6 @@ def handle_message(message):
         bot.send_message(chat_id, "💰 টাকা তোলার মাধ্যম সিলেক্ট করুন:", reply_markup=markup)
 
     elif text == "📌 সাপোর্ট":
-        # ছবির আদله হুবহু সাপোর্ট মেসেজ ও অফিশিয়াল চ্যানেল বাটন
         support_text = (
             "👤 **গ্রাহক সেবা কেন্দ্র**\n\n"
             "সম্মানিত মেম্বার,\n"
@@ -417,7 +430,6 @@ def callback_query(call):
             
             bot.send_message(target_user_id, f"🎉 আপনার কাজটি সঠিক বলে গৃহীত হয়েছে! আপনার ব্যালেন্সে {amount} টাকা যোগ করা হয়েছে।")
             
-            # ৫% রেফারেল কমিশন এবং টোটাল রেফার ইনকাম আপডেট লজিক
             referrer_id = users[target_user_id].get("referred_by")
             if referrer_id and referrer_id in users:
                 commission = round(amount * 0.05, 2)  
@@ -444,7 +456,6 @@ def callback_query(call):
             bot.send_message(target_user_id, f"❌ আপনার ফেসবুক UID: `{rejected_uid}` সমেত কাজটি ভুল বা নিয়ম অনুযায়ী হয়নি বিধায় রিজেক্ট করা হয়েছে।", parse_mode="Markdown")
             bot.edit_message_text("❌ কাজ রিজেক্ট করা হয়েছে।", chat_id, call.message.message_id)
 
-    # অ্যাডমিন যখন 'পেমেন্ট সফল হয়েছে' বাটনে ক্লিক করবেন
     elif data.startswith("paid_") and user_id == ADMIN_ID:
         parts = data.split("_")
         target_user_id = int(parts[1])
@@ -478,5 +489,10 @@ def callback_query(call):
 
 
 if __name__ == "__main__":
-    print("Bot is running...")
+    # ফ্লাস্ক সার্ভার ব্যাকগ্রাউন্ডে রান করানো (রেন্ডারের ওয়েব সার্ভিসের পোর্ট রিকোয়ারমেন্ট পূরণের জন্য)
+    t = threading.Thread(target=run_web)
+    t.daemon = True
+    t.start()
+
+    print("Bot and Web Server are running...")
     bot.infinity_polling()
