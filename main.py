@@ -63,7 +63,7 @@ def get_user(user_id):
     if not user:
         user = {
             "user_id": user_id,
-            "balance": 500.0,  # টেস্টের জন্য ডিফল্ট ব্যালেন্স
+            "balance": 0.0,  # টেস্টের জন্য ডিফল্ট ব্যালেন্স
             "ref_income": 0.0, 
             "ref_count": 0, 
             "referred_by": None, 
