@@ -53,12 +53,24 @@ MIN_WITHDRAW = 100.0  # সর্বনিম্ন উত্তোলন পর
 MIN_RECHARGE = 20.0   # সর্বনিম্ন মোবাইল রিচার্জ পরিমাণ
 
 
+# বাংলা সংখ্যাকে ইংরেজি সংখ্যায় রূপান্তর করার ফাংশন
+def parse_bangla_number(text):
+    bangla_to_eng = {'০':'0', '১':'1', '২':'2', '৩':'3', '৪':'4', '৫':'5', '৬':'6', '৭':'7', '৮':'8', '৯':'9'}
+    for b, e in bangla_to_eng.items():
+        text = text.replace(b, e)
+    cleaned = re.sub(r'[^0-9.]', '', text)
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
 # ---------------- FLASK SERVER (RENDER PORT FIX) ----------------
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-  return "Bot is running with JSON File Database & New Features!"
+  return "Bot is running with Perfect Recharge Flow!"
 
 def run_flask():
   port = int(os.environ.get("PORT", 10000))
@@ -92,6 +104,7 @@ def get_user_data(user_id):
         "temp_cookies": "",
         "task_password": "",
         "withdraw_method": "",
+        "operator": "",
         "withdraw_phone": "",
     }
     save_data(users)
@@ -127,6 +140,7 @@ def send_welcome(message):
         "temp_cookies": "",
         "task_password": "",
         "withdraw_method": "",
+        "operator": "",
         "withdraw_phone": "",
     }
     
@@ -303,9 +317,14 @@ def handle_message(message):
     cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
     
     method = user_data.get("withdraw_method", "বিকাশ")
-    amount_prompt = "কত টাকা রিচার্জ করতে চান? (যেমন: ২০, ৫০, ১০০)" if method == "মোবাইল রিচার্জ" else "কত টাকা উত্তোলন করতে চান? (যেমন: ১০০, ২০০)"
+    operator = user_data.get("operator", "")
     
-    bot.send_message(chat_id, f"💰 *{amount_prompt} শুধু সংখ্যায় লিখুন:*", parse_mode="Markdown", reply_markup=cancel_markup)
+    if method == "মোবাইল রিচার্জ":
+      amount_prompt = f"কত টাকা রিচার্জ ({operator}) করতে চান? (যেমন: ২০, ৫০, ১০০)"
+    else:
+      amount_prompt = "কত টাকা উত্তোলন করতে চান? (যেমন: ১০০, ২০০)"
+    
+    bot.send_message(chat_id, f"💰 *{amount_prompt} সংখ্যায় লিখুন:*", parse_mode="Markdown", reply_markup=cancel_markup)
     return
 
   # ৫. উইথড্র / রিচার্জ পরিমাণ গ্রহণ
@@ -314,15 +333,15 @@ def handle_message(message):
       bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
       return
 
-    try:
-      amount = float(text)
-    except ValueError:
-      bot.send_message(chat_id, "❌ *দয়া করে শুধুমাত্র সংখ্যায় পরিমাণ লিখুন (যেমন: 50)।*", parse_mode="Markdown")
+    amount = parse_bangla_number(text)
+    if amount is None:
+      bot.send_message(chat_id, "❌ *দয়া করে সঠিক সংখ্যায় পরিমাণ লিখুন (যেমন: 50 বা ৫০)।*", parse_mode="Markdown")
       return
 
     current_data = get_user_data(user_id)
     balance = current_data["balance"]
     method = current_data.get("withdraw_method", "বিকাশ")
+    operator = current_data.get("operator", "")
     phone = current_data.get("withdraw_phone", "")
 
     limit = MIN_RECHARGE if method == "মোবাইল রিচার্জ" else MIN_WITHDRAW
@@ -332,14 +351,14 @@ def handle_message(message):
       return
 
     if amount > balance:
-      bot.send_message(chat_id, f"❌ *पर्याप्त ব্যালেন্স নেই! বর্তমান ব্যালেন্স: {balance:.2f} BDT*", parse_mode="Markdown")
+      bot.send_message(chat_id, f"❌ *পর্যাপ্ত ব্যালেন্স নেই! বর্তমান ব্যালেন্স: {balance:.2f} BDT*", parse_mode="Markdown")
       return
 
     new_balance = balance - amount
     update_user_data(user_id, {"state": None, "balance": new_balance})
 
     if method == "মোবাইল রিচার্জ":
-      admin_msg = f"📱 *নতুন মোবাইল রিচার্জ রিকোয়েস্ট!*\n\n👤 ইউজার ID: `{user_id}`\n📞 নম্বর: `{phone}`\n💰 পরিমাণ: {amount} BDT"
+      admin_msg = f"📱 *নতুন মোবাইল রিচার্জ রিকোয়েস্ট!*\n\n👤 ইউজার ID: `{user_id}`\n🌐 অপারেটর: *{operator}*\n📞 নম্বর: `{phone}`\n💰 পরিমাণ: {amount} BDT"
       callback_prefix = "rechargepaid_"
     else:
       admin_msg = f"📤 *নতুন উইথড্র রিকোয়েস্ট!*\n\n👤 ইউজার ID: `{user_id}`\n💼 মাধ্যম: {method}\n📞 নম্বর: `{phone}`\n💰 পরিমাণ: {amount} BDT\n✂️ চার্জ: {WITHDRAW_FEE} BDT"
@@ -352,7 +371,7 @@ def handle_message(message):
 
     user_success_msg = (
         f"✅ *আপনার রিকোয়েস্ট সফলভাবে সাবমিট হয়েছে!*\n\n"
-        f"💼 *মাধ্যম:* {method}\n"
+        f"💼 *মাধ্যম:* {method} {f'({operator})' if operator else ''}\n"
         f"📱 *নম্বর:* {phone}\n"
         f"💵 *পরিমাণ:* {amount:.2f} BDT\n"
         f"🔄 *অ্যাডমিন প্যানেলে পাঠানো হয়েছে, শীঘ্রই পাঠানো হবে!*\n\n"
@@ -452,10 +471,32 @@ def callback_query(call):
       bot.answer_callback_query(call.id, "পর্যাপ্ত ব্যালেন্স নেই!", show_alert=True)
       bot.send_message(chat_id, f"❌ *আপনার ব্যালেন্স পর্যাপ্ত নয়! সর্বনিম্ন সীমা {limit} BDT*", parse_mode="Markdown")
     else:
-      update_user_data(user_id, {"state": "waiting_for_withdraw_number", "withdraw_method": method})
-      cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-      cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-      bot.send_message(chat_id, f"📱 *আপনার ১১ ডিজিটের {method} নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
+      if method == "মোবাইল রিচার্জ":
+        # রিচার্জের ক্ষেত্রে ৫টি সিমের অপশন দেখানো
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("🔵 গ্রামীণফোন (GP)", callback_data="op_Grameenphone"),
+            types.InlineKeyboardButton("🔴 রবি (Robi)", callback_data="op_Robi"),
+            types.InlineKeyboardButton("⭕ এয়ারটেল (Airtel)", callback_data="op_Airtel"),
+            types.InlineKeyboardButton("🟠 বাংলালিংক (Banglalink)", callback_data="op_Banglalink"),
+            types.InlineKeyboardButton("🟢 টেলিটক (Teletalk)", callback_data="op_Teletalk")
+        )
+        update_user_data(user_id, {"withdraw_method": method})
+        bot.send_message(chat_id, "📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
+      else:
+        update_user_data(user_id, {"withdraw_method": method, "operator": ""})
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+        bot.send_message(chat_id, f"📱 *আপনার ১১ ডিজিটের {method} নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
+
+  # সিম বা অপারেটর সিলেক্ট করার পর নম্বর চাওয়ার ধাপ
+  elif data.startswith("op_"):
+    operator_name = data.replace("op_", "")
+    update_user_data(user_id, {"operator": operator_name, "state": "waiting_for_withdraw_number"})
+    
+    cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+    bot.send_message(chat_id, f"📱 *সিম সিলেক্ট করা হয়েছে: {operator_name}*\n\nএখন আপনার **১১ ডিজিটের মোবাইল নম্বরটি** দিন:", parse_mode="Markdown", reply_markup=cancel_markup)
 
   # অ্যাডমিন: কাজ অ্যাপ্রুভ
   elif data.startswith("approve_") and user_id == ADMIN_ID:
@@ -500,7 +541,7 @@ def callback_query(call):
       bot.send_message(target_user_id, f"❌ *আপনার ফেসবুক UID:* `{rejected_uid}` *সমেত কাজটি রিজেক্ট করা হয়েছে।*", parse_mode="Markdown")
       bot.edit_message_text("❌ কাজ রিজেক্ট করা হয়েছে।", chat_id, call.message.message_id)
 
-  # অ্যাডমিন: পেমেন্ট বা রিচার্জ পেইড মার্ক করা
+  # অ্যাডমিন: পেমেন্ট বা রিচার্জ পেইড মার্ক করা (ইউজারের কাছে সুন্দর সফল এসএমএস পাঠানো)
   elif (data.startswith("paid_") or data.startswith("rechargepaid_")) and user_id == ADMIN_ID:
     parts = data.split("_")
     target_user_id = int(parts[1])
@@ -510,11 +551,27 @@ def callback_query(call):
     target_data = get_user_data(target_user_id)
     if target_data:
       remaining_balance = target_data.get("balance", 0.0)
+      operator = target_data.get("operator", "")
+      phone = target_data.get("withdraw_phone", "")
 
       if "rechargepaid_" in data:
-        user_msg = f"🎉 *অভিনন্দন! আপনার মোবাইল রিচার্জ সফল হয়েছে।*\n\n💵 *পরিমাণ:* {amount:.2f} BDT\n📱 *আপনার নম্বরে রিচার্জ পাঠানো হয়েছে!*\n\n💳 বর্তমান অবশিষ্ট ব্যালেন্স: *{remaining_balance:.2f} BDT*"
+        user_msg = (
+            f"🎉 *অভিনন্দন! আপনার মোবাইল রিচার্জ সফল হয়েছে।*\n\n"
+            f"🌐 *অপারেটর:* {operator}\n"
+            f"📱 *নম্বর:* `{phone}`\n"
+            f"💵 *পরিমাণ:* {amount:.2f} BDT\n"
+            f"✅ *আপনার নাম্বারে রিচার্জ সফলভাবে পাঠানো হয়েছে!*\n\n"
+            f"💳 বর্তমান অবশিষ্ট ব্যালেন্স: *{remaining_balance:.2f} BDT*"
+        )
       else:
-        user_msg = f"🎉 *অভিনন্দন! আপনার উইথড্র রিকোয়েস্ট সফল হয়েছে।*\n\n💵 *পরিমাণ:* {amount:.2f} BDT\n💼 *মাধ্যম:* {method}\n\n💳 বর্তমান অবশিষ্ট ব্যালেন্স: *{remaining_balance:.2f} BDT*"
+        user_msg = (
+            f"🎉 *অভিনন্দন! আপনার উইথড্র রিকোয়েস্ট সফল হয়েছে।*\n\n"
+            f"💵 *পরিমাণ:* {amount:.2f} BDT\n"
+            f"💼 *মাধ্যম:* {method}\n"
+            f"📱 *নম্বর:* `{phone}`\n"
+            f"✅ *আপনার অ্যাকাউন্টে টাকা পাঠিয়ে দেওয়া হয়েছে!*\n\n"
+            f"💳 বর্তমান অবশিষ্ট ব্যালেন্স: *{remaining_balance:.2f} BDT*"
+        )
 
       try:
         bot.send_message(target_user_id, user_msg, parse_mode="Markdown")
@@ -533,5 +590,5 @@ if __name__ == "__main__":
   flask_thread.daemon = True
   flask_thread.start()
 
-  print("Bot and Flask server are running with updated features...")
+  print("Bot and Flask server are running with flawless recharge flow...")
   bot.infinity_polling()
