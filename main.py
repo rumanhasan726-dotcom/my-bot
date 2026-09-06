@@ -3,7 +3,7 @@ from telebot import types
 import re
 
 # ---------------- CONFIGURATION ----------------
-TOKEN = "8965009856:AAEBSRHIuXA-jUGXMZLXiKa2mt2rsLdlcus"
+TOKEN = "8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHWw"
 bot = telebot.TeleBot(TOKEN)
 
 # ডেটাবেজ
