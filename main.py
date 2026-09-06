@@ -1,39 +1,90 @@
 from flask import Flask
 import os
 import re
-import json
 import telebot
 from telebot import types
 import threading
+from pymongo import MongoClient
 
 # ---------------- CONFIGURATION ----------------
 TOKEN = "8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHWw"
 bot = telebot.TeleBot(TOKEN)
 
-DATA_FILE = "users.json"
+# MongoDB Connection (আপনার দেওয়া নতুন পাসওয়ার্ড সহ)
+MONGO_URI = "mongodb+srv://js3262481_db_user:ruman@45@cluster0.p7mypr2.mongodb.net/?appName=Cluster0"
+try:
+    mongo_client = MongoClient(MONGO_URI)
+    db = mongo_client["telegram_bot_db"]
+    users_collection = db["users"]
+    print("Connected to MongoDB successfully!")
+except Exception as e:
+    print(f"MongoDB connection error: {e}")
 
-# ইউজার ডেটা লোড করার ফাংশন
+# ডেটা লোড করার ফাংশন (MongoDB থেকে)
 def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:
-                    return {}
-                data = json.loads(content)
-                return {int(k): v for k, v in data.items()}
-        except Exception as e:
-            print(f"Error loading data: {e}")
-            return {}
-    return {}
-
-# ইউজার ডেটা সেভ করার ফাংশন
-def save_data(data):
+    data = {}
     try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        for doc in users_collection.find():
+            user_id = doc.get("user_id")
+            if user_id:
+                data[int(user_id)] = doc
     except Exception as e:
-        print(f"Error saving data: {e}")
+        print(f"Error loading from MongoDB: {e}")
+    return data
+
+# একক ইউজারের ডেটা ফেচ বা ক্রিয়েট করার ফাংশন
+def get_user_data(user_id):
+    try:
+        user_doc = users_collection.find_one({"user_id": int(user_id)})
+        if not user_doc:
+            new_user = {
+                "user_id": int(user_id),
+                "balance": 0.0,
+                "ref_income": 0.0,
+                "ref_count": 0,
+                "referred_by": None,
+                "state": None,
+                "completed_tasks": 0,
+                "pending_tasks": 0,
+                "temp_uid": "",
+                "temp_cookies": "",
+                "task_password": "",
+                "withdraw_method": "",
+                "operator": "",
+                "withdraw_phone": "",
+            }
+            users_collection.insert_one(new_user)
+            return new_user
+        return user_doc
+    except Exception as e:
+        print(f"Error getting user data: {e}")
+        return {
+            "user_id": int(user_id),
+            "balance": 0.0,
+            "ref_income": 0.0,
+            "ref_count": 0,
+            "referred_by": None,
+            "state": None,
+            "completed_tasks": 0,
+            "pending_tasks": 0,
+            "temp_uid": "",
+            "temp_cookies": "",
+            "task_password": "",
+            "withdraw_method": "",
+            "operator": "",
+            "withdraw_phone": "",
+        }
+
+# ডেটা আপডেট বা সেভ করার ফাংশন
+def update_user_data(user_id, update_dict):
+    try:
+        users_collection.update_one(
+            {"user_id": int(user_id)},
+            {"$set": update_dict},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Error updating MongoDB: {e}")
 
 users = load_data()
 submitted_uids = set()
@@ -70,7 +121,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-  return "Bot is running with Perfect Recharge Flow!"
+  return "Bot is running with MongoDB Connected!"
 
 def run_flask():
   port = int(os.environ.get("PORT", 10000))
@@ -88,38 +139,6 @@ def check_user_subscription(user_id):
   return False
 
 
-# হেল্পার ফাংশন: ইউজারের ডেটা ফেচ বা ক্রিয়েট করার জন্য
-def get_user_data(user_id):
-  global users
-  if user_id not in users:
-    users[user_id] = {
-        "balance": 0.0,
-        "ref_income": 0.0,
-        "ref_count": 0,
-        "referred_by": None,
-        "state": None,
-        "completed_tasks": 0,
-        "pending_tasks": 0,
-        "temp_uid": "",
-        "temp_cookies": "",
-        "task_password": "",
-        "withdraw_method": "",
-        "operator": "",
-        "withdraw_phone": "",
-    }
-    save_data(users)
-  return users[user_id]
-
-
-def update_user_data(user_id, update_dict):
-  global users
-  if user_id not in users:
-    get_user_data(user_id)
-  for key, value in update_dict.items():
-    users[user_id][key] = value
-  save_data(users)
-
-
 # ---------------- START COMMAND & MAIN MENU ----------------
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
@@ -127,8 +146,10 @@ def send_welcome(message):
   user_id = message.from_user.id
   args = message.text.split()
 
-  if user_id not in users:
-    users[user_id] = {
+  user_doc = users_collection.find_one({"user_id": int(user_id)})
+  if not user_doc:
+    new_user = {
+        "user_id": int(user_id),
         "balance": 0.0,
         "ref_income": 0.0,
         "ref_count": 0,
@@ -147,12 +168,14 @@ def send_welcome(message):
     if len(args) > 1:
       try:
         ref_id = int(args[1])
-        if ref_id != user_id and ref_id in users:
-          users[user_id]["referred_by"] = ref_id
-          users[ref_id]["ref_count"] = users[ref_id].get("ref_count", 0) + 1
+        ref_doc = users_collection.find_one({"user_id": ref_id})
+        if ref_id != user_id and ref_doc:
+          new_user["referred_by"] = ref_id
+          users_collection.update_one({"user_id": ref_id}, {"$inc": {"ref_count": 1}})
       except ValueError:
         pass
-    save_data(users)
+    users_collection.insert_one(new_user)
+    users = load_data()
 
   if not check_user_subscription(user_id):
     markup = types.InlineKeyboardMarkup()
@@ -198,7 +221,7 @@ def handle_message(message):
     markup.add(types.InlineKeyboardButton("✅ Verify (চেক করুন)", callback_data="verify_sub"))
     bot.send_message(
         chat_id,
-        "⚠️ *বট ব্যবহার করতে হলে অবশ্যই নিচের চ্যানেলে জয়েন করতে হবে!*\nদয়া করে আগে জয়েন করুন।",
+        "⚠️ *বট ব্যবহার করতে হলে অবশ্যই নিচের চ্যানেলে জয়েন করতে হবে!*\nদয়া করে আগে জয়েন করুন።",
         parse_mode="Markdown",
         reply_markup=markup,
     )
@@ -227,9 +250,10 @@ def handle_message(message):
     if text.startswith("/notice "):
       notice_text = text.replace("/notice ", "").strip()
       if notice_text:
-        for uid_key in users:
+        all_users = users_collection.find()
+        for u in all_users:
           try:
-            bot.send_message(int(uid_key), f"📢 *বিশেষ ঘোষণা / নোটিশ*\n\n{notice_text}", parse_mode="Markdown")
+            bot.send_message(int(u["user_id"]), f"📢 *বিশেষ ঘোষণা / নোটিশ*\n\n{notice_text}", parse_mode="Markdown")
           except Exception:
             pass
         bot.send_message(chat_id, "✅ নোটিশ পাঠানো সম্পন্ন!", parse_mode="Markdown")
@@ -472,7 +496,6 @@ def callback_query(call):
       bot.send_message(chat_id, f"❌ *আপনার ব্যালেন্স পর্যাপ্ত নয়! সর্বনিম্ন সীমা {limit} BDT*", parse_mode="Markdown")
     else:
       if method == "মোবাইল রিচার্জ":
-        # রিচার্জের ক্ষেত্রে ৫টি সিমের অপশন দেখানো
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
             types.InlineKeyboardButton("🔵 গ্রামীণফোন (GP)", callback_data="op_Grameenphone"),
@@ -489,7 +512,6 @@ def callback_query(call):
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
         bot.send_message(chat_id, f"📱 *আপনার ১১ ডিজিটের {method} নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
 
-  # সিম বা অপারেটর সিলেক্ট করার পর নম্বর চাওয়ার ধাপ
   elif data.startswith("op_"):
     operator_name = data.replace("op_", "")
     update_user_data(user_id, {"operator": operator_name, "state": "waiting_for_withdraw_number"})
@@ -515,15 +537,17 @@ def callback_query(call):
 
       # রেফারেল কমিশন
       referrer_id = target_data.get("referred_by")
-      if referrer_id and referrer_id in users:
-        commission = round(amount * 0.05, 2)
-        ref_bal = users[referrer_id]["balance"] + commission
-        ref_inc = users[referrer_id].get("ref_income", 0.0) + commission
-        update_user_data(referrer_id, {"balance": ref_bal, "ref_income": ref_inc})
-        try:
-          bot.send_message(referrer_id, f"🎁 *রেফার কমিশন বাবদ {commission:.2f} টাকা যোগ হয়েছে!*", parse_mode="Markdown")
-        except Exception:
-          pass
+      if referrer_id:
+        ref_doc = users_collection.find_one({"user_id": referrer_id})
+        if ref_doc:
+          commission = round(amount * 0.05, 2)
+          ref_bal = ref_doc["balance"] + commission
+          ref_inc = ref_doc.get("ref_income", 0.0) + commission
+          update_user_data(referrer_id, {"balance": ref_bal, "ref_income": ref_inc})
+          try:
+            bot.send_message(referrer_id, f"🎁 *রেফার কমিশন বাবদ {commission:.2f} টাকা যোগ হয়েছে!*", parse_mode="Markdown")
+          except Exception:
+            pass
 
       bot.edit_message_text("✅ কাজ অ্যাপ্রুভ করা হয়েছে!", chat_id, call.message.message_id)
 
@@ -541,7 +565,7 @@ def callback_query(call):
       bot.send_message(target_user_id, f"❌ *আপনার ফেসবুক UID:* `{rejected_uid}` *সমেত কাজটি রিজেক্ট করা হয়েছে।*", parse_mode="Markdown")
       bot.edit_message_text("❌ কাজ রিজেক্ট করা হয়েছে।", chat_id, call.message.message_id)
 
-  # অ্যাডমিন: পেমেন্ট বা রিচার্জ পেইড মার্ক করা (ইউজারের কাছে সুন্দর সফল এসএমএস পাঠানো)
+  # অ্যাডমিন: পেমেন্ট বা রিচার্জ পেইড মার্ক করা
   elif (data.startswith("paid_") or data.startswith("rechargepaid_")) and user_id == ADMIN_ID:
     parts = data.split("_")
     target_user_id = int(parts[1])
@@ -590,5 +614,5 @@ if __name__ == "__main__":
   flask_thread.daemon = True
   flask_thread.start()
 
-  print("Bot and Flask server are running with flawless recharge flow...")
+  print("Bot and Flask server are running with MongoDB connected...")
   bot.infinity_polling()
