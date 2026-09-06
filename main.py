@@ -1,6 +1,7 @@
 from flask import Flask
 import os
 import re
+import json
 import telebot
 from telebot import types
 import threading
@@ -9,8 +10,33 @@ import threading
 TOKEN = "8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHWw"
 bot = telebot.TeleBot(TOKEN)
 
-# ডেটাবেজ
-users = {}
+DATA_FILE = "users.json"
+
+# ইউজার ডেটা লোড করার ফাংশন
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if not content:
+                    return {}
+                data = json.loads(content)
+                # স্ট্রিং কি (key)-গুলোকে ইন্টিজার (integer) ইউজার আইডিতে রূপান্তর করা
+                return {int(k): v for k, v in data.items()}
+        except Exception as e:
+            print(f"Error loading data: {e}")
+            return {}
+    return {}
+
+# ইউজার ডেটা সেভ করার ফাংশন
+def save_data(data):
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"Error saving data: {e}")
+
+users = load_data()
 submitted_uids = set()
 
 ADMIN_ID = 8449043852  # আপনার অ্যাডমিন আইডি
@@ -33,7 +59,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-  return "Bot is running!"
+  return "Bot is running with JSON File Database!"
 
 
 def run_flask():
@@ -52,9 +78,41 @@ def check_user_subscription(user_id):
   return False
 
 
+# হেল্পার ফাংশন: ইউজারের ডেটা ফেচ বা ক্রিয়েট করার জন্য
+def get_user_data(user_id):
+  global users
+  if user_id not in users:
+    users[user_id] = {
+        "balance": 0.0,
+        "ref_income": 0.0,
+        "ref_count": 0,
+        "referred_by": None,
+        "state": None,
+        "completed_tasks": 0,
+        "pending_tasks": 0,
+        "temp_uid": "",
+        "temp_cookies": "",
+        "task_password": "",
+        "withdraw_method": "",
+        "withdraw_phone": "",
+    }
+    save_data(users)
+  return users[user_id]
+
+
+def update_user_data(user_id, update_dict):
+  global users
+  if user_id not in users:
+    get_user_data(user_id)
+  for key, value in update_dict.items():
+    users[user_id][key] = value
+  save_data(users)
+
+
 # ---------------- START COMMAND & MAIN MENU ----------------
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
+  global users
   user_id = message.from_user.id
   args = message.text.split()
 
@@ -73,14 +131,16 @@ def send_welcome(message):
         "withdraw_method": "",
         "withdraw_phone": "",
     }
+    
     if len(args) > 1:
       try:
         ref_id = int(args[1])
         if ref_id != user_id and ref_id in users:
           users[user_id]["referred_by"] = ref_id
-          users[ref_id]["ref_count"] += 1
+          users[ref_id]["ref_count"] = users[ref_id].get("ref_count", 0) + 1
       except ValueError:
         pass
+    save_data(users)
 
   # ফোর্স সাবস্ক্রিপশন চেক করা (শুধু অফিসিয়াল চ্যানেল)
   if not check_user_subscription(user_id):
@@ -108,8 +168,7 @@ def send_welcome(message):
 
 
 def main_menu(chat_id, text_msg):
-  if chat_id in users:
-    users[chat_id]["state"] = None
+  update_user_data(chat_id, {"state": None})
 
   markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
   btn_balance = types.KeyboardButton("💰 ব্যালেন্স")
@@ -126,25 +185,11 @@ def main_menu(chat_id, text_msg):
     func=lambda message: True, content_types=["text", "audio", "voice"]
 )
 def handle_message(message):
-  global CURRENT_PASSWORD, TASK_PRICE, PRICE_TEXT
+  global CURRENT_PASSWORD, TASK_PRICE, PRICE_TEXT, users
   chat_id = message.chat.id
   user_id = message.from_user.id
 
-  if user_id not in users:
-    users[user_id] = {
-        "balance": 0.0,
-        "ref_income": 0.0,
-        "ref_count": 0,
-        "referred_by": None,
-        "state": None,
-        "completed_tasks": 0,
-        "pending_tasks": 0,
-        "temp_uid": "",
-        "temp_cookies": "",
-        "task_password": "",
-        "withdraw_method": "",
-        "withdraw_phone": "",
-    }
+  get_user_data(user_id)
 
   if not check_user_subscription(user_id):
     markup = types.InlineKeyboardMarkup()
@@ -208,10 +253,10 @@ def handle_message(message):
       if notice_text:
         success_count = 0
         fail_count = 0
-        for uid in users.keys():
+        for uid_key in users:
           try:
             bot.send_message(
-                uid,
+                int(uid_key),
                 f"📢 *বিশেষ ঘোষণা / নোটিশ*\n\n{notice_text}",
                 parse_mode="Markdown",
             )
@@ -237,12 +282,12 @@ def handle_message(message):
     success_count = 0
     fail_count = 0
 
-    for uid in users.keys():
+    for uid_key in users:
       try:
         if message.content_type == "voice":
-          bot.send_voice(uid, file_id, caption="🎙️ *নতুন ভয়েস নোটিশ*")
+          bot.send_voice(int(uid_key), file_id, caption="🎙️ *নতুন ভয়েস নোটিশ*")
         else:
-          bot.send_audio(uid, file_id, caption="🎵 *নতুন অডিও নোটিশ*")
+          bot.send_audio(int(uid_key), file_id, caption="🎵 *নতুন অডিও নোটিশ*")
         success_count += 1
       except Exception:
         fail_count += 1
@@ -259,16 +304,17 @@ def handle_message(message):
     return
 
   text = message.text.strip()
+  user_data = get_user_data(user_id)
 
   if text == "❌ বাতিল":
-    users[user_id]["state"] = None
+    update_user_data(user_id, {"state": None})
     main_menu(
         chat_id,
         "🏢 *আপনাকে প্রধান মেনুতে ফিরিয়ে আনা হয়েছে! কাজ বাতিল করা হয়েছে।*",
     )
     return
 
-  user_state = users[user_id].get("state")
+  user_state = user_data.get("state")
 
   # ১. টাস্ক সাবমিশন প্রসেস: UID গ্রহণ
   if user_state == "waiting_for_uid":
@@ -281,8 +327,8 @@ def handle_message(message):
       )
       return
 
-    if users[user_id].get("task_password") != CURRENT_PASSWORD:
-      users[user_id]["state"] = None
+    if user_data.get("task_password") != CURRENT_PASSWORD:
+      update_user_data(user_id, {"state": None})
       main_menu(
           chat_id,
           "⚠️ *এই পাসওয়ার্ডের মেয়াদ শেষ বা পরিবর্তিত হয়েছে! দয়া করে '💼 কাজ'"
@@ -305,8 +351,7 @@ def handle_message(message):
           chat_id, "❌ *এই ফেসবুক UID টি ইতিমধ্যে একবার জমা দেওয়া হয়েছে!*", parse_mode="Markdown"
       )
     else:
-      users[user_id]["temp_uid"] = uid
-      users[user_id]["state"] = "waiting_for_cookies"
+      update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_cookies"})
 
       cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
       cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
@@ -329,8 +374,7 @@ def handle_message(message):
       )
       return
 
-    users[user_id]["temp_cookies"] = text
-    users[user_id]["state"] = "waiting_for_finish_button"
+    update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_finish_button"})
 
     finish_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
     finish_markup.add(
@@ -349,12 +393,12 @@ def handle_message(message):
   # ৩. টাস্ক সাবমিশন প্রসেস: অ্যাকাউন্ট খোলা শেষ বাটন
   elif user_state == "waiting_for_finish_button":
     if text == "অ্যাকাউন্ট খোলা শেষ":
-      uid = users[user_id]["temp_uid"]
-      cookies = users[user_id]["temp_cookies"]
+      current_data = get_user_data(user_id)
+      uid = current_data.get("temp_uid")
+      cookies = current_data.get("temp_cookies")
 
       submitted_uids.add(uid)
-      users[user_id]["pending_tasks"] += 1
-      users[user_id]["state"] = None
+      update_user_data(user_id, {"pending_tasks": current_data.get("pending_tasks", 0) + 1, "state": None})
 
       admin_msg = (
           f"📥 *নতুন কাজ জমা পড়েছে!*\n\n👤 ইউজার আইডি: `{user_id}`\n📌 ফেসবুক"
@@ -408,8 +452,7 @@ def handle_message(message):
       )
       return
 
-    users[user_id]["withdraw_phone"] = phone
-    users[user_id]["state"] = "waiting_for_withdraw_amount"
+    update_user_data(user_id, {"withdraw_phone": phone, "state": "waiting_for_withdraw_amount"})
 
     cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
@@ -443,9 +486,10 @@ def handle_message(message):
       )
       return
 
-    balance = users[user_id]["balance"]
-    method = users[user_id].get("withdraw_method", "বিকাশ")
-    phone = users[user_id].get("withdraw_phone", "")
+    current_data = get_user_data(user_id)
+    balance = current_data["balance"]
+    method = current_data.get("withdraw_method", "বিকাশ")
+    phone = current_data.get("withdraw_phone", "")
 
     if amount < MIN_WITHDRAW:
       bot.send_message(
@@ -465,9 +509,8 @@ def handle_message(message):
       )
       return
 
-    users[user_id]["state"] = None
-    users[user_id]["balance"] -= amount
-    remaining_balance = users[user_id]["balance"]
+    new_balance = balance - amount
+    update_user_data(user_id, {"state": None, "balance": new_balance})
 
     admin_withdraw_msg = (
         f"📤 *নতুন উইথড্র রিকোয়েস্ট!*\n\n👤 ইউজার আইডি: `{user_id}`\n💼 মাধ্যম:"
@@ -490,7 +533,7 @@ def handle_message(message):
         f"✅ *আপনার উইথড্র রিকোয়েস্ট সফল হয়েছে!*\n\n💼 *মেথড:*"
         f" {method}\n📱 *Number/Details:* {phone}\n💵 *উত্তোলনের পরিমাণ:*"
         f" {amount:.2f} BDT\n🔄 *অ্যাডমিন প্যানেলে এটি পাঠানো হয়েছে!*\n\n💳"
-        f" অবশিষ্ট ব্যালেন্স: *{remaining_balance:.2f} BDT*"
+        f" অবশিষ্ট ব্যালেন্স: *{new_balance:.2f} BDT*"
     )
     bot.send_message(chat_id, user_success_msg, parse_mode="Markdown")
     main_menu(chat_id, "✨ *প্রধান মেনু:*")
@@ -498,10 +541,11 @@ def handle_message(message):
 
   # প্রধান মেনু বাটন হ্যান্ডলিং
   if text == "💰 ব্যালেন্স":
-    balance = users[user_id]["balance"]
-    ref_income = users[user_id].get("ref_income", 0.0)
-    completed = users[user_id]["completed_tasks"]
-    pending = users[user_id]["pending_tasks"]
+    data = get_user_data(user_id)
+    balance = data["balance"]
+    ref_income = data.get("ref_income", 0.0)
+    completed = data["completed_tasks"]
+    pending = data["pending_tasks"]
 
     reply_text = (
         f"👤 *আপনার একাউন্ট ব্যালেন্স:*\n\n"
@@ -570,6 +614,7 @@ def handle_message(message):
 # ---------------- CALLBACK QUERY HANDLER ----------------
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
+  global users
   user_id = call.from_user.id
   chat_id = call.message.chat.id
   data = call.data
@@ -585,7 +630,7 @@ def callback_query(call):
     else:
       bot.answer_callback_query(
           call.id,
-          "আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে জয়েন করুন।",
+          "আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে আগে জয়েন করুন.",
           show_alert=True,
       )
     return
@@ -599,10 +644,9 @@ def callback_query(call):
     return
 
   if data == "refer_info":
-    if user_id not in users:
-      return
-    ref_count = users[user_id]["ref_count"]
-    ref_income = users[user_id].get("ref_income", 0.0)
+    user_data = get_user_data(user_id)
+    ref_count = user_data["ref_count"]
+    ref_income = user_data.get("ref_income", 0.0)
     ref_link = f"https://t.me/R4_OTP_bot?start={user_id}"
 
     text = (
@@ -614,8 +658,7 @@ def callback_query(call):
     bot.send_message(chat_id, text, parse_mode="Markdown")
 
   elif data == "fb_task":
-    users[user_id]["state"] = "waiting_for_uid"
-    users[user_id]["task_password"] = CURRENT_PASSWORD
+    update_user_data(user_id, {"state": "waiting_for_uid", "task_password": CURRENT_PASSWORD})
 
     cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
@@ -631,7 +674,8 @@ def callback_query(call):
 
   elif data in ["withdraw_bkash", "withdraw_nagad"]:
     method = "বিকাশ" if "bkash" in data else "নগদ"
-    balance = users[user_id]["balance"]
+    user_data = get_user_data(user_id)
+    balance = user_data["balance"]
 
     if balance < MIN_WITHDRAW:
       bot.answer_callback_query(
@@ -644,8 +688,7 @@ def callback_query(call):
           parse_mode="Markdown",
       )
     else:
-      users[user_id]["state"] = "waiting_for_withdraw_number"
-      users[user_id]["withdraw_method"] = method
+      update_user_data(user_id, {"state": "waiting_for_withdraw_number", "withdraw_method": method})
       cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
       cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
       bot.send_message(
@@ -661,11 +704,17 @@ def callback_query(call):
     target_user_id = int(parts[1])
     amount = float(parts[2])
 
-    if target_user_id in users:
-      users[target_user_id]["balance"] += amount
-      if users[target_user_id]["pending_tasks"] > 0:
-        users[target_user_id]["pending_tasks"] -= 1
-      users[target_user_id]["completed_tasks"] += 1
+    target_data = get_user_data(target_user_id)
+    if target_data:
+      new_bal = target_data["balance"] + amount
+      new_completed = target_data["completed_tasks"] + 1
+      new_pending = max(0, target_data["pending_tasks"] - 1)
+      
+      update_user_data(target_user_id, {
+          "balance": new_bal,
+          "completed_tasks": new_completed,
+          "pending_tasks": new_pending
+      })
 
       bot.send_message(
           target_user_id,
@@ -674,13 +723,16 @@ def callback_query(call):
           parse_mode="Markdown",
       )
 
-      referrer_id = users[target_user_id].get("referred_by")
+      referrer_id = target_data.get("referred_by")
       if referrer_id and referrer_id in users:
         commission = round(amount * 0.05, 2)
-        users[referrer_id]["balance"] += commission
-        users[referrer_id]["ref_income"] = (
-            users[referrer_id].get("ref_income", 0.0) + commission
-        )
+        ref_bal = users[referrer_id]["balance"] + commission
+        ref_inc = users[referrer_id].get("ref_income", 0.0) + commission
+        
+        update_user_data(referrer_id, {
+            "balance": ref_bal,
+            "ref_income": ref_inc
+        })
 
         notif_text = (
             "🎁 *আপনার রেফার করা একজন ইউজারের সঠিক কাজের জন্য আপনি"
@@ -701,9 +753,11 @@ def callback_query(call):
     target_user_id = int(parts[1])
     rejected_uid = parts[2] if len(parts) > 2 else "N/A"
 
-    if target_user_id in users:
-      if users[target_user_id]["pending_tasks"] > 0:
-        users[target_user_id]["pending_tasks"] -= 1
+    target_data = get_user_data(target_user_id)
+    if target_data:
+      if target_data.get("pending_tasks", 0) > 0:
+        update_user_data(target_user_id, {"pending_tasks": target_data["pending_tasks"] - 1})
+
       bot.send_message(
           target_user_id,
           f"❌ *আপনার ফেসবুক UID:* `{rejected_uid}` *সমেত কাজটি ভুল বা নিয়ম অনুযায়ী"
@@ -720,8 +774,9 @@ def callback_query(call):
     amount = float(parts[2])
     method = parts[3] if len(parts) > 3 else "বিকাশ/নগদ"
 
-    if target_user_id in users:
-      remaining_balance = users[target_user_id].get("balance", 0.0)
+    target_data = get_user_data(target_user_id)
+    if target_data:
+      remaining_balance = target_data.get("balance", 0.0)
 
       user_msg = (
           f"🎉 *অভিনন্দন! আপনার উইথড্র রিকোয়েস্ট সফল হয়েছে।*\n\n💵 *পরিমাণ:*"
@@ -752,5 +807,6 @@ if __name__ == "__main__":
   flask_thread.daemon = True
   flask_thread.start()
 
-  print("Bot and Flask server are running...")
+  print("Bot and Flask server are running with JSON database...")
   bot.infinity_polling()
+
