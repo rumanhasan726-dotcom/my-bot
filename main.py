@@ -308,7 +308,6 @@ def handle_message(message):
             main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
-    # FIXED: রিমোট রিচার্জের ক্ষেত্রে স্টেপ ঠিক করা হয়েছে (প্রথমে নম্বর, পরে অ্যামাউন্ট)
     elif user_state == "waiting_for_recharge_number":
         if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
             bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -457,9 +456,15 @@ def handle_message(message):
         bot.send_message(chat_id, "💰 *পেমেন্ট বা রিচার্জ মাধ্যম সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📌 সাপোর্ট":
-        support_text = "👤 *গ্রাহক সেবা কেন্দ্র*\n\nআপনার যেকোনো সমস্যায় আমাদের অফিসিয়াল চ্যানেলে যোগাযোগ করুন।"
+        support_text = (
+            "🟢 *গ্রাহক সেবা কেন্দ্র*\n\n"
+            "সম্মানিত মেম্বার,\n"
+            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন। we are online 24 hours.\n\n"
+            "🙇‍♂️ *অ্যাডমিন সাপোর্ট:* এডমিনের সাথে সরাসরি কথা বলতে চাইলে আপনাকে বট থেকে কমপক্ষে ৫০০ টাকা ইনকাম করতে হবে।\n\n"
+            "🆙 *আপডেট:* নিয়মিত কাজের আপডেট পেতে নিচের লিংকে ক্লিক করে আমাদের অফিসিয়াল চ্যানেলে জয়েন থাকুন।"
+        )
         support_markup = types.InlineKeyboardMarkup()
-        support_markup.add(types.InlineKeyboardButton("📢 অফিসিয়াল চ্যানেল", url=FORCE_CHANNEL_LINK))
+        support_markup.add(types.InlineKeyboardButton("📢 অফিসিয়াল চ্যানেল", url=FORCE_CHANNEL_LINK))
         bot.send_message(chat_id, support_text, parse_mode="Markdown", reply_markup=support_markup)
 
     elif text == "🎁 Refer & Earn":
@@ -536,7 +541,6 @@ def callback_query(call):
 
     elif data.startswith("op_"):
         operator_name = data.replace("op_", "")
-        # সিম সিলেক্ট করার পর প্রথমে নম্বর চাওয়া হবে (স্টেপ অনুযায়ী)
         update_user_data(user_id, {"operator": operator_name, "state": "waiting_for_recharge_number"})
         
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -632,5 +636,5 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    print("Bot and Flask server are running perfectly with exact steps...")
+    print("Bot and Flask server are running perfectly with exact support message format...")
     bot.infinity_polling()
