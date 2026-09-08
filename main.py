@@ -320,7 +320,7 @@ def handle_message(message):
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{user_id}_{uid}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup)
-            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে!*", parse_mode="Markdown")
+            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে! আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে।*", parse_mode="Markdown")
             main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
@@ -361,10 +361,8 @@ def handle_message(message):
             bot.send_message(chat_id, "❌ *অসঠিক 2FA Key! দয়া করে সঠিক Key দিন:*", parse_mode="Markdown")
             return
 
-        # সেভ করে রাখছি যাতে ইউজার ফেসবুকে কোড বসিয়ে পরে 'অ্যাকাউন্ট খোলা শেষ' চাপতে পারে
         update_user_data(user_id, {"temp_2fa_key": key_clean, "state": "waiting_for_finish_2fa_button"})
 
-        # ইউজারকে কোডটি কপি করার বাটনসহ মেসেজ দেওয়া
         markup_user = types.InlineKeyboardMarkup()
         markup_user.add(types.InlineKeyboardButton(f"📋 {otp_code}", callback_data=f"copy_code_{otp_code}"))
 
@@ -392,7 +390,7 @@ def handle_message(message):
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{user_id}_{uid}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup_admin)
-            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে!*", parse_mode="Markdown")
+            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে! আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে।*", parse_mode="Markdown")
             main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
@@ -537,7 +535,7 @@ def handle_message(message):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(f"Fb Cookies ({COOKIE_TASK_PRICE:.2f} BDT)", callback_data="fb_cookie_task"))
         markup.add(types.InlineKeyboardButton(f"Fb 2FA ({TWOFA_TASK_PRICE:.2f} BDT)", callback_data="fb_2fa_task"))
-        bot.send_message(chat_id, "✏️ *নিچیর কাজটি সিলেক্ট করুন:*\n👇", parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(chat_id, "✏️ *নিচের কাজটি সিলেক্ট করুন:*\n👇", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📤 উত্তোলন":
         markup = types.InlineKeyboardMarkup()
@@ -605,8 +603,6 @@ def callback_query(call):
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
         task_msg = (
             f"🔵 *Facebook Account Creation Info:*\n\n"
-            f"• First Name : Joseph\n"
-            f"• Last Name : King\n"
             f"• Password : `{CURRENT_PASSWORD}`\n\n"
             f"🟩 *অ্যাকাউন্ট তৈরি করা হয়ে গেলে, আপনার Facebook User ID (UID) লিখে পাঠান:*"
         )
@@ -749,5 +745,5 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    print("Bot is running with refined Cookies & 2FA task systems perfectly...")
+    print("Bot is running perfectly without first/last names...")
     bot.infinity_polling()
