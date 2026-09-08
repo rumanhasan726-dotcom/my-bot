@@ -324,7 +324,7 @@ def handle_message(message):
             main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
-    # --- 2FA TASK FLOW ---
+    # --- 2FA TASK FLOW (UID -> Cookies -> 2FA Key) ---
     elif user_state == "waiting_for_uid_2fa":
         if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -338,10 +338,21 @@ def handle_message(message):
         if uid in submitted_uids:
             bot.send_message(chat_id, "❌ *এই ফেসবুক UID টি ইতিমধ্যে জমা দেওয়া হয়েছে! অন্য UID দিন।*", parse_mode="Markdown")
         else:
-            update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_2fa_key"})
+            update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_cookies_2fa"})
             cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-            bot.send_message(chat_id, "🛡️ *2FA Key টি দিন: ⬇️*", parse_mode="Markdown", reply_markup=cancel_markup)
+            bot.send_message(chat_id, "🛡️ *আপনার অ্যাকাউন্টের কুকিজ পেস্ট করুন 📍*", parse_mode="Markdown", reply_markup=cancel_markup)
+        return
+
+    elif user_state == "waiting_for_cookies_2fa":
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+            bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
+            return
+
+        update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_2fa_key"})
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+        bot.send_message(chat_id, "🛡️ *এখন 2FA Key টি দিন: ⬇️*", parse_mode="Markdown", reply_markup=cancel_markup)
         return
 
     elif user_state == "waiting_for_2fa_key":
@@ -377,12 +388,13 @@ def handle_message(message):
         if text == "অ্যাকাউন্ট খোলা শেষ":
             current_data = get_user_data(user_id)
             uid = current_data.get("temp_uid")
+            cookies = current_data.get("temp_cookies")
             key_clean = current_data.get("temp_2fa_key")
 
             submitted_uids.add(uid)
             update_user_data(user_id, {"pending_tasks": current_data.get("pending_tasks", 0) + 1, "state": None})
 
-            admin_msg = f"📥 *নতুন 2FA টাস্ক জমা পড়েছে!*\n\n👤 ইউজার ID: `{user_id}`\n📌 UID: `{uid}`\n🔑 2FA Key: `{key_clean}`\n💵 মূল্য: {TWOFA_TASK_PRICE:.2f} BDT"
+            admin_msg = f"📥 *নতুন 2FA টাস্ক জমা পড়েছে!*\n\n👤 ইউজার ID: `{user_id}`\n📌 UID: `{uid}`\n🍪 কুকিজ:\n`{cookies}`\n🔑 2FA Key: `{key_clean}`\n💵 মূল্য: {TWOFA_TASK_PRICE:.2f} BDT"
             
             markup_admin = types.InlineKeyboardMarkup()
             markup_admin.add(
