@@ -5,6 +5,7 @@ import telebot
 from telebot import types
 import threading
 from pymongo import MongoClient
+import pyotp
 
 # ---------------- CONFIGURATION ----------------
 TOKEN = "8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHWw"
@@ -46,6 +47,8 @@ def get_user_data(user_id):
                 "pending_tasks": 0,
                 "temp_uid": "",
                 "temp_cookies": "",
+                "temp_2fa_key": "",
+                "task_type": "",
                 "task_password": "",
                 "withdraw_method": "",
                 "operator": "",
@@ -67,6 +70,8 @@ def get_user_data(user_id):
             "pending_tasks": 0,
             "temp_uid": "",
             "temp_cookies": "",
+            "temp_2fa_key": "",
+            "task_type": "",
             "task_password": "",
             "withdraw_method": "",
             "operator": "",
@@ -91,12 +96,13 @@ ADMIN_ID = 8449043852  # আপনার অ্যাডমিন আইডি
 FORCE_CHANNEL_USERNAME = "@R4_Work_Sapait"
 FORCE_CHANNEL_LINK = "https://t.me/R4_Work_Sapait"
 
-CURRENT_PASSWORD = "Sakil@31"
-TASK_PRICE = 5.00
-PRICE_TEXT = "5.00 BDT"
-WITHDRAW_FEE = 5.00
+CURRENT_PASSWORD = "Jahanur@08"
+COOKIE_TASK_PRICE = 4.80
+TWOFA_TASK_PRICE = 5.40
+
 MIN_WITHDRAW = 100.0
 MIN_RECHARGE = 20.0
+WITHDRAW_FEE = 5.00
 
 def parse_bangla_number(text):
     bangla_to_eng = {'০':'0', '১':'1', '২':'2', '৩':'3', '৪':'4', '৫':'5', '৬':'6', '৭':'7', '৮':'8', '৯':'9'}
@@ -148,6 +154,8 @@ def send_welcome(message):
             "pending_tasks": 0,
             "temp_uid": "",
             "temp_cookies": "",
+            "temp_2fa_key": "",
+            "task_type": "",
             "task_password": "",
             "withdraw_method": "",
             "operator": "",
@@ -196,7 +204,7 @@ def main_menu(chat_id, text_msg):
 # ---------------- MESSAGE & ADMIN HANDLER ----------------
 @bot.message_handler(func=lambda message: True, content_types=["text", "audio", "voice"])
 def handle_message(message):
-    global CURRENT_PASSWORD, TASK_PRICE, PRICE_TEXT, users
+    global CURRENT_PASSWORD, COOKIE_TASK_PRICE, TWOFA_TASK_PRICE, users
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -223,12 +231,18 @@ def handle_message(message):
                 bot.send_message(chat_id, f"✅ নতুন পাসওয়ার্ড: `{CURRENT_PASSWORD}`", parse_mode="Markdown")
             return
 
-        if text.startswith("/setprice "):
-            new_price_str = text.replace("/setprice ", "").strip()
+        if text.startswith("/setcookieprice "):
             try:
-                TASK_PRICE = float(new_price_str)
-                PRICE_TEXT = f"{TASK_PRICE:.2f} BDT"
-                bot.send_message(chat_id, f"✅ নতুন প্রাইস: `{PRICE_TEXT}`", parse_mode="Markdown")
+                COOKIE_TASK_PRICE = float(text.replace("/setcookieprice ", "").strip())
+                bot.send_message(chat_id, f"✅ কুকিজ টাস্কের নতুন প্রাইস: `{COOKIE_TASK_PRICE:.2f} BDT`", parse_mode="Markdown")
+            except ValueError:
+                pass
+            return
+
+        if text.startswith("/set2faprice "):
+            try:
+                TWOFA_TASK_PRICE = float(text.replace("/set2faprice ", "").strip())
+                bot.send_message(chat_id, f"✅ 2FA টাস্কের নতুন প্রাইস: `{TWOFA_TASK_PRICE:.2f} BDT`", parse_mode="Markdown")
             except ValueError:
                 pass
             return
@@ -257,8 +271,10 @@ def handle_message(message):
         return
 
     user_state = user_data.get("state")
+    task_type = user_data.get("task_type")
 
-    if user_state == "waiting_for_uid":
+    # --- COOKIES TASK FLOW ---
+    if user_state == "waiting_for_uid_cookie":
         if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
@@ -269,7 +285,7 @@ def handle_message(message):
             return
 
         if uid in submitted_uids:
-            bot.send_message(chat_id, "❌ *এই ফেসবুক UID টি ইতিমধ্যে জমা দেওয়া হয়েছে!*", parse_mode="Markdown")
+            bot.send_message(chat_id, "❌ *এই ফেসবুক UID টি ইতিমধ্যে জমা দেওয়া হয়েছে! অন্য UID দিন।*", parse_mode="Markdown")
         else:
             update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_cookies"})
             cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -282,13 +298,13 @@ def handle_message(message):
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
-        update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_finish_button"})
+        update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_finish_cookie_button"})
         finish_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         finish_markup.add(types.KeyboardButton("অ্যাকাউন্ট খোলা শেষ"), types.KeyboardButton("❌ বাতিল"))
         bot.send_message(chat_id, "✅ *অ্যাকাউন্ট খোলা শেষ হলে নিচের বাটনে চাপ দিন:*", parse_mode="Markdown", reply_markup=finish_markup)
         return
 
-    elif user_state == "waiting_for_finish_button":
+    elif user_state == "waiting_for_finish_cookie_button":
         if text == "অ্যাকাউন্ট খোলা শেষ":
             current_data = get_user_data(user_id)
             uid = current_data.get("temp_uid")
@@ -297,10 +313,10 @@ def handle_message(message):
             submitted_uids.add(uid)
             update_user_data(user_id, {"pending_tasks": current_data.get("pending_tasks", 0) + 1, "state": None})
 
-            admin_msg = f"📥 *নতুন কাজ জমা পড়েছে!*\n\n👤 ইউজার ID: `{user_id}`\n📌 UID: `{uid}`\n🍪 কুকিজ:\n`{cookies}`\n\n💵 মূল্য: {PRICE_TEXT}"
+            admin_msg = f"📥 *নতুন কুকিজ টাস্ক জমা পড়েছে!*\n\n👤 ইউজার ID: `{user_id}`\n📌 UID: `{uid}`\n🍪 কুকিজ:\n`{cookies}`\n\n💵 মূল্য: {COOKIE_TASK_PRICE:.2f} BDT"
             markup = types.InlineKeyboardMarkup()
             markup.add(
-                types.InlineKeyboardButton("✅ সঠিক (Approve)", callback_data=f"approve_{user_id}_{TASK_PRICE}_{uid}"),
+                types.InlineKeyboardButton("✅ সঠিক (Approve)", callback_data=f"approve_{user_id}_{COOKIE_TASK_PRICE}_{uid}"),
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{user_id}_{uid}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup)
@@ -308,6 +324,79 @@ def handle_message(message):
             main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
+    # --- 2FA TASK FLOW ---
+    elif user_state == "waiting_for_uid_2fa":
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+            bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
+            return
+
+        uid = text
+        if not uid.isdigit() or len(uid) < 5 or len(uid) > 20:
+            bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
+            return
+
+        if uid in submitted_uids:
+            bot.send_message(chat_id, "❌ *এই ফেসবুক UID টি ইতিমধ্যে জমা দেওয়া হয়েছে! অন্য UID দিন।*", parse_mode="Markdown")
+        else:
+            update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_2fa_key"})
+            cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+            bot.send_message(chat_id, "🛡️ *2FA Key টি দিন: ⬇️*", parse_mode="Markdown", reply_markup=cancel_markup)
+        return
+
+    elif user_state == "waiting_for_2fa_key":
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+            bot.send_message(chat_id, "⚠️ *2FA Key দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
+            return
+
+        key_clean = text.replace(" ", "").upper()
+        if not (re.match(r"^[A-Z2-7]+$", key_clean) and len(key_clean) in [16, 32]):
+            bot.send_message(chat_id, "❌ *সঠিক 2FA Key দিন (অবশ্যই ১৬ বা ৩২ অক্ষরের এবং সব বড় হাতের হতে হবে)...*", parse_mode="Markdown")
+            return
+
+        try:
+            totp = pyotp.TOTP(key_clean)
+            otp_code = totp.now()
+        except Exception:
+            bot.send_message(chat_id, "❌ *অসঠিক 2FA Key! দয়া করে সঠিক Key দিন:*", parse_mode="Markdown")
+            return
+
+        # সেভ করে রাখছি যাতে ইউজার ফেসবুকে কোড বসিয়ে পরে 'অ্যাকাউন্ট খোলা শেষ' চাপতে পারে
+        update_user_data(user_id, {"temp_2fa_key": key_clean, "state": "waiting_for_finish_2fa_button"})
+
+        # ইউজারকে কোডটি কপি করার বাটনসহ মেসেজ দেওয়া
+        markup_user = types.InlineKeyboardMarkup()
+        markup_user.add(types.InlineKeyboardButton(f"📋 {otp_code}", callback_data=f"copy_code_{otp_code}"))
+
+        finish_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+        finish_markup.add(types.KeyboardButton("অ্যাকাউন্ট খোলা শেষ"), types.KeyboardButton("❌ বাতিল"))
+
+        bot.send_message(chat_id, "🛡️ *নিচের বাটনে চাপ দিয়ে কোডটি কপি করুন এবং ফেসবুকে বসান:*", parse_mode="Markdown", reply_markup=markup_user)
+        bot.send_message(chat_id, "✅ *ফেসবুকে কোড বসানো হয়ে গেলে নিচের 'অ্যাকাউন্ট খোলা শেষ' বাটনে চাপ দিন:*", parse_mode="Markdown", reply_markup=finish_markup)
+        return
+
+    elif user_state == "waiting_for_finish_2fa_button":
+        if text == "অ্যাকাউন্ট খোলা শেষ":
+            current_data = get_user_data(user_id)
+            uid = current_data.get("temp_uid")
+            key_clean = current_data.get("temp_2fa_key")
+
+            submitted_uids.add(uid)
+            update_user_data(user_id, {"pending_tasks": current_data.get("pending_tasks", 0) + 1, "state": None})
+
+            admin_msg = f"📥 *নতুন 2FA টাস্ক জমা পড়েছে!*\n\n👤 ইউজার ID: `{user_id}`\n📌 UID: `{uid}`\n🔑 2FA Key: `{key_clean}`\n💵 মূল্য: {TWOFA_TASK_PRICE:.2f} BDT"
+            
+            markup_admin = types.InlineKeyboardMarkup()
+            markup_admin.add(
+                types.InlineKeyboardButton("✅ সঠিক (Approve)", callback_data=f"approve_{user_id}_{TWOFA_TASK_PRICE}_{uid}"),
+                types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{user_id}_{uid}")
+            )
+            bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup_admin)
+            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে!*", parse_mode="Markdown")
+            main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
+        return
+
+    # --- RECHARGE / WITHDRAW STATES ---
     elif user_state == "waiting_for_recharge_number":
         if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
             bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -432,6 +521,7 @@ def handle_message(message):
         main_menu(chat_id, "✨ *প্রধান মেনু:*")
         return
 
+    # --- MENU BUTTONS ---
     if text == "💰 ব্যালেন্স":
         data = get_user_data(user_id)
         reply_text = (
@@ -445,8 +535,9 @@ def handle_message(message):
 
     elif text == "💼 কাজ":
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(f"Facebook কাজ ({PRICE_TEXT})", callback_data="fb_task"))
-        bot.send_message(chat_id, "✏️ *যেকোনো একটি কাজ সিলেক্ট করুন নিচে:*\n👇", parse_mode="Markdown", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton(f"Fb Cookies ({COOKIE_TASK_PRICE:.2f} BDT)", callback_data="fb_cookie_task"))
+        markup.add(types.InlineKeyboardButton(f"Fb 2FA ({TWOFA_TASK_PRICE:.2f} BDT)", callback_data="fb_2fa_task"))
+        bot.send_message(chat_id, "✏️ *নিچیর কাজটি সিলেক্ট করুন:*\n👇", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📤 উত্তোলন":
         markup = types.InlineKeyboardMarkup()
@@ -503,11 +594,33 @@ def callback_query(call):
         bot.answer_callback_query(call.id, "⚠️ কাজ করতে হলে চ্যানেলে জয়েন করতে হবে!", show_alert=True)
         return
 
-    if data == "fb_task":
-        update_user_data(user_id, {"state": "waiting_for_uid", "task_password": CURRENT_PASSWORD})
+    if data.startswith("copy_code_"):
+        code_to_copy = data.replace("copy_code_", "")
+        bot.answer_callback_query(call.id, f"কোড কপি হয়েছে: {code_to_copy}", show_alert=True)
+        return
+
+    if data == "fb_cookie_task":
+        update_user_data(user_id, {"state": "waiting_for_uid_cookie", "task_type": "cookie", "task_password": CURRENT_PASSWORD})
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-        task_msg = f"🔵 *Facebook Account Creation Info (মূল্য: {PRICE_TEXT}):*\n\n✔ Password : `{CURRENT_PASSWORD}`\n\n💬 *একউন্ট তৈরি করে আপনার Facebook User ID (UID) দিন:*"
+        task_msg = (
+            f"🔵 *Facebook Account Creation Info:*\n\n"
+            f"• First Name : Joseph\n"
+            f"• Last Name : King\n"
+            f"• Password : `{CURRENT_PASSWORD}`\n\n"
+            f"🟩 *অ্যাকাউন্ট তৈরি করা হয়ে গেলে, আপনার Facebook User ID (UID) লিখে পাঠান:*"
+        )
+        bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
+
+    elif data == "fb_2fa_task":
+        update_user_data(user_id, {"state": "waiting_for_uid_2fa", "task_type": "2fa", "task_password": CURRENT_PASSWORD})
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+        task_msg = (
+            f"🔵 *Facebook Account Creation Info:*\n\n"
+            f"• Password : `{CURRENT_PASSWORD}`\n\n"
+            f"🟩 *অ্যাকাউন্ট তৈরি করা হয়ে গেলে, আপনার Facebook User ID (UID) লিখে পাঠান:*"
+        )
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif data == "withdraw_recharge":
@@ -636,5 +749,6 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    print("Bot and Flask server are running perfectly with exact support message format...")
+    print("Bot is running with refined Cookies & 2FA task systems perfectly...")
     bot.infinity_polling()
+
