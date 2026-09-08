@@ -751,4 +751,3 @@ if __name__ == "__main__":
 
     print("Bot is running with refined Cookies & 2FA task systems perfectly...")
     bot.infinity_polling()
-
