@@ -6,6 +6,7 @@ from telebot import types
 import threading
 from pymongo import MongoClient
 import pyotp
+from datetime import datetime, timezone, timedelta
 
 # ---------------- CONFIGURATION ----------------
 TOKEN = "8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHWw"
@@ -17,27 +18,72 @@ try:
     mongo_client = MongoClient(MONGO_URI)
     db = mongo_client["telegram_bot_db"]
     users_collection = db["users"]
+    settings_collection = db["settings"]
     print("Connected to MongoDB successfully!")
 except Exception as e:
     print(f"MongoDB connection error: {e}")
 
-def load_data():
-    data = {}
-    try:
-        for doc in users_collection.find():
-            user_id = doc.get("user_id")
-            if user_id:
-                data[int(user_id)] = doc
-    except Exception as e:
-        print(f"Error loading from MongoDB: {e}")
-    return data
+# বাংলাদেশ সময় জোন (UTC+6)
+BD_TZ = timezone(timedelta(hours=6))
 
-def get_user_data(user_id):
+# উইকলি রিসেট চেক করার ফাংশন (প্রতি শুক্রবার রাত ৯টা)
+def check_and_reset_leaderboard():
     try:
-        user_doc = users_collection.find_one({"user_id": int(user_id)})
+        now_bd = datetime.now(BD_TZ)
+        # weekday(): 4 হলো শুক্রবার (Monday=0 ... Sunday=6)
+        current_weekday = now_bd.weekday()
+        current_hour = now_bd.hour
+
+        # স্টোরেজ থেকে লাস্ট রিসেটের সময় বা সাইকেল চেক করা
+        reset_doc = settings_collection.find_one({"setting_type": "leaderboard_cycle"})
+        
+        # বর্তমান সাইকেল নির্ধারণ (শুক্রবার রাত ৯টা থেকে পরবর্তী শুক্রবার রাত ৯টা)
+        # যদি আজ শুক্রবার এবং সময় রাত ৯টা বা তার বেশি হয়
+        if current_weekday == 4 and current_hour >= 21:
+            cycle_key = f"fri_9pm_{now_bd.strftime('%Y-%m-%d')}"
+        else:
+            # গত শুক্রবারের তারিখ বের করা
+            days_to_last_fri = (current_weekday - 4) % 7
+            if days_to_last_fri == 0 and current_hour < 21:
+                days_to_last_fri = 7
+            last_fri = now_bd - timedelta(days=days_to_last_fri)
+            cycle_key = f"fri_9pm_{last_fri.strftime('%Y-%m-%d')}"
+
+        if not reset_doc or reset_doc.get("active_cycle") != cycle_key:
+            # রিসেট করার সময় হয়েছে! সব ইউজারের completed_tasks শূন্য করে দেওয়া হবে
+            users_collection.update_many({}, {"$set": {"completed_tasks": 0}})
+            settings_collection.update_one(
+                {"setting_type": "leaderboard_cycle"},
+                {"$set": {"active_cycle": cycle_key}},
+                upsert=True
+            )
+            print(f"Leaderboard reset successfully for cycle: {cycle_key}")
+    except Exception as e:
+        print(f"Leaderboard reset error: {e}")
+
+# ডিফল্ট প্রাইজ সেটআপ
+def get_prizes():
+    s = settings_collection.find_one({"setting_type": "prizes"})
+    if not s:
+        default_prizes = {"1": 50.0, "2": 30.0, "3": 20.0}
+        settings_collection.update_one({"setting_type": "prizes"}, {"$set": default_prizes}, upsert=True)
+        return default_prizes
+    return {"1": s.get("1", 50.0), "2": s.get("2", 30.0), "3": s.get("3", 20.0)}
+
+def update_prize(rank, amount):
+    settings_collection.update_one({"setting_type": "prizes"}, {"$set": {str(rank): float(amount)}}, upsert=True)
+
+def get_user_data(user_id, user_obj=None):
+    try:
+        query_filter = {"user_id": int(user_id)}
+        user_doc = users_collection.find_one(query_filter)
+        
+        first_name = user_obj.first_name if (user_obj and user_obj.first_name) else "User"
+        
         if not user_doc:
             new_user = {
                 "user_id": int(user_id),
+                "name": first_name,
                 "balance": 0.0,
                 "ref_income": 0.0,
                 "ref_count": 0,
@@ -56,11 +102,16 @@ def get_user_data(user_id):
             }
             users_collection.insert_one(new_user)
             return new_user
+        else:
+            if user_obj and user_doc.get("name") != first_name:
+                users_collection.update_one(query_filter, {"$set": {"name": first_name}})
+                user_doc["name"] = first_name
         return user_doc
     except Exception as e:
         print(f"Error getting user data: {e}")
         return {
             "user_id": int(user_id),
+            "name": "User",
             "balance": 0.0,
             "ref_income": 0.0,
             "ref_count": 0,
@@ -88,7 +139,6 @@ def update_user_data(user_id, update_dict):
     except Exception as e:
         print(f"Error updating MongoDB: {e}")
 
-users = load_data()
 submitted_uids = set()
 
 ADMIN_ID = 8449043852  # আপনার অ্যাডমিন আইডি
@@ -137,42 +187,22 @@ def check_user_subscription(user_id):
 # ---------------- START COMMAND ----------------
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
-    global users
+    check_and_reset_leaderboard() # শুরুতেই রিসেট চেক করবে
     user_id = message.from_user.id
     args = message.text.split()
 
-    user_doc = users_collection.find_one({"user_id": int(user_id)})
-    if not user_doc:
-        new_user = {
-            "user_id": int(user_id),
-            "balance": 0.0,
-            "ref_income": 0.0,
-            "ref_count": 0,
-            "referred_by": None,
-            "state": None,
-            "completed_tasks": 0,
-            "pending_tasks": 0,
-            "temp_uid": "",
-            "temp_cookies": "",
-            "temp_2fa_key": "",
-            "task_type": "",
-            "task_password": "",
-            "withdraw_method": "",
-            "operator": "",
-            "withdraw_phone": "",
-        }
-        
-        if len(args) > 1:
-            try:
-                ref_id = int(args[1])
-                ref_doc = users_collection.find_one({"user_id": ref_id})
-                if ref_id != user_id and ref_doc:
-                    new_user["referred_by"] = ref_id
-                    users_collection.update_one({"user_id": ref_id}, {"$inc": {"ref_count": 1}})
-            except ValueError:
-                pass
-        users_collection.insert_one(new_user)
-        users = load_data()
+    get_user_data(user_id, message.from_user)
+    
+    if len(args) > 1:
+        try:
+            ref_id = int(args[1])
+            ref_doc = users_collection.find_one({"user_id": ref_id})
+            user_doc = users_collection.find_one({"user_id": user_id})
+            if ref_id != user_id and ref_doc and not user_doc.get("referred_by"):
+                users_collection.update_one({"user_id": user_id}, {"$set": {"referred_by": ref_id}})
+                users_collection.update_one({"user_id": ref_id}, {"$inc": {"ref_count": 1}})
+        except ValueError:
+            pass
 
     if not check_user_subscription(user_id):
         markup = types.InlineKeyboardMarkup()
@@ -197,18 +227,20 @@ def main_menu(chat_id, text_msg):
     btn_withdraw = types.KeyboardButton("📤 উত্তোলন")
     btn_support = types.KeyboardButton("📌 সাপোর্ট")
     btn_refer = types.KeyboardButton("🎁 Refer & Earn")
+    btn_leaderboard = types.KeyboardButton("🏆 Leader Board")
     
-    markup.add(btn_balance, btn_work, btn_withdraw, btn_support, btn_refer)
+    markup.add(btn_balance, btn_work, btn_withdraw, btn_support, btn_refer, btn_leaderboard)
     bot.send_message(chat_id, text_msg, parse_mode="Markdown", reply_markup=markup)
 
 # ---------------- MESSAGE & ADMIN HANDLER ----------------
 @bot.message_handler(func=lambda message: True, content_types=["text", "audio", "voice"])
 def handle_message(message):
-    global CURRENT_PASSWORD, COOKIE_TASK_PRICE, TWOFA_TASK_PRICE, users
+    global CURRENT_PASSWORD, COOKIE_TASK_PRICE, TWOFA_TASK_PRICE
+    check_and_reset_leaderboard() # যেকোনো মেসেজে রিসেট চেক করবে
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    get_user_data(user_id)
+    get_user_data(user_id, message.from_user)
 
     if not check_user_subscription(user_id):
         markup = types.InlineKeyboardMarkup()
@@ -247,6 +279,20 @@ def handle_message(message):
                 pass
             return
 
+        if text.startswith("/setprize "):
+            try:
+                parts = text.split()
+                rank_no = parts[1]
+                new_amt = float(parts[2])
+                if rank_no in ["1", "2", "3"]:
+                    update_prize(rank_no, new_amt)
+                    bot.send_message(chat_id, f"✅ সফলভাবে {rank_no} নং পজিশনের পুরস্কার আপডেট করে `{new_amt} BDT` করা হয়েছে!", parse_mode="Markdown")
+                else:
+                    bot.send_message(chat_id, "❌ শুধু ১, ২ অথবা ৩ নম্বরের পুরস্কার পরিবর্তন করা যাবে। (যেমন: `/setprize 1 50`)", parse_mode="Markdown")
+            except Exception:
+                bot.send_message(chat_id, "❌ সঠিক ফরম্যাটে লিখুন। উদাহরণ: `/setprize 1 50`", parse_mode="Markdown")
+            return
+
         if text.startswith("/notice "):
             notice_text = text.replace("/notice ", "").strip()
             if notice_text:
@@ -263,19 +309,43 @@ def handle_message(message):
         return
 
     text = message.text.strip()
-    user_data = get_user_data(user_id)
+    user_data = get_user_data(user_id, message.from_user)
 
     if text == "❌ বাতিল":
         update_user_data(user_id, {"state": None})
         main_menu(chat_id, "🏢 *প্রধান মেনুতে ফিরিয়ে আনা হয়েছে।*")
         return
 
+    # --- LEADER BOARD BUTTON ---
+    if text == "🏆 Leader Board":
+        prizes = get_prizes()
+        top_users = list(users_collection.find().sort("completed_tasks", -1).limit(10))
+        
+        lb_text = "🏆 *《 WEEKLY LEADER BOARD 》* 🏆\n📅 *(প্রতি শুক্রবার রাত ৯টা পর্যন্ত কার্যকর)*\n\n"
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        
+        for idx, u in enumerate(top_users, 1):
+            rank_icon = medals.get(idx, f"📌 {idx}.")
+            uname = u.get("name", "User")
+            tasks_done = u.get("completed_tasks", 0)
+            lb_text += f"{rank_icon} *{uname}* ➔ `{tasks_done} Tasks`\n"
+            
+        lb_text += f"\n🎁 *এই সপ্তাহের পুরস্কারের তালিকা:*\n"
+        lb_text += f"🥇 ১ম স্থান: `{prizes['1']} BDT`\n"
+        lb_text += f"🥈 ২য় স্থান: `{prizes['2']} BDT`\n"
+        lb_text += f"🥉 ৩য় স্থান: `{prizes['3']} BDT`\n\n"
+        lb_text += f"💡 *লিডারবোর্ডে আপনার পজিশন জানতে নিচের বাটনে ক্লিক করুন!*"
+
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔍 আমার পজিশন চেক করুন", callback_data="check_my_rank"))
+        bot.send_message(chat_id, lb_text, parse_mode="Markdown", reply_markup=markup)
+        return
+
     user_state = user_data.get("state")
-    task_type = user_data.get("task_type")
 
     # --- COOKIES TASK FLOW ---
     if user_state == "waiting_for_uid_cookie":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -294,7 +364,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_cookies":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
@@ -306,7 +376,7 @@ def handle_message(message):
 
     elif user_state == "waiting_for_finish_cookie_button":
         if text == "অ্যাকাউন্ট খোলা শেষ":
-            current_data = get_user_data(user_id)
+            current_data = get_user_data(user_id, message.from_user)
             uid = current_data.get("temp_uid")
             cookies = current_data.get("temp_cookies")
 
@@ -324,9 +394,9 @@ def handle_message(message):
             main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
-    # --- 2FA TASK FLOW (UID -> Cookies -> 2FA Key) ---
+    # --- 2FA TASK FLOW ---
     elif user_state == "waiting_for_uid_2fa":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -345,7 +415,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_cookies_2fa":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
@@ -356,7 +426,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_2fa_key":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *2FA Key দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
@@ -386,7 +456,7 @@ def handle_message(message):
 
     elif user_state == "waiting_for_finish_2fa_button":
         if text == "অ্যাকাউন্ট খোলা শেষ":
-            current_data = get_user_data(user_id)
+            current_data = get_user_data(user_id, message.from_user)
             uid = current_data.get("temp_uid")
             cookies = current_data.get("temp_cookies")
             key_clean = current_data.get("temp_2fa_key")
@@ -408,7 +478,7 @@ def handle_message(message):
 
     # --- RECHARGE / WITHDRAW STATES ---
     elif user_state == "waiting_for_recharge_number":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -426,7 +496,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_recharge_amount":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -435,7 +505,7 @@ def handle_message(message):
             bot.send_message(chat_id, "❌ *দয়া করে সঠিক সংখ্যায় পরিমাণ লিখুন (যেমন: 50 বা ৫০)।*", parse_mode="Markdown")
             return
 
-        current_data = get_user_data(user_id)
+        current_data = get_user_data(user_id, message.from_user)
         balance = current_data["balance"]
         operator = current_data.get("operator", "")
         phone = current_data.get("withdraw_phone", "")
@@ -470,7 +540,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_withdraw_number":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -483,12 +553,11 @@ def handle_message(message):
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
         
-        method = user_data.get("withdraw_method", "বিকাশ")
         bot.send_message(chat_id, f"💰 *কত টাকা উত্তোলন করতে চান? (যেমন: ১০০, ২০০) সংখ্যায় লিখুন:*", parse_mode="Markdown", reply_markup=cancel_markup)
         return
 
     elif user_state == "waiting_for_withdraw_amount":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -497,7 +566,7 @@ def handle_message(message):
             bot.send_message(chat_id, "❌ *দয়া করে সঠিক সংখ্যায় পরিমাণ লিখুন (যেমন: 100 বা ১০০)।*", parse_mode="Markdown")
             return
 
-        current_data = get_user_data(user_id)
+        current_data = get_user_data(user_id, message.from_user)
         balance = current_data["balance"]
         method = current_data.get("withdraw_method", "বিকাশ")
         phone = current_data.get("withdraw_phone", "")
@@ -533,7 +602,7 @@ def handle_message(message):
 
     # --- MENU BUTTONS ---
     if text == "💰 ব্যালেন্স":
-        data = get_user_data(user_id)
+        data = get_user_data(user_id, message.from_user)
         reply_text = (
             f"👤 *আপনার একাউন্ট ব্যালেন্স:*\n\n"
             f"🟢 ব্যালেন্স: {data['balance']:.2f} BDT\n"
@@ -569,7 +638,7 @@ def handle_message(message):
         bot.send_message(chat_id, support_text, parse_mode="Markdown", reply_markup=support_markup)
 
     elif text == "🎁 Refer & Earn":
-        user_data = get_user_data(user_id)
+        user_data = get_user_data(user_id, message.from_user)
         ref_link = f"https://t.me/{bot.get_me().username}?start={user_id}"
         text_ref = (
             f"🎁 *REFER AND EARN* 💵\n\n"
@@ -583,7 +652,7 @@ def handle_message(message):
 # ---------------- CALLBACK QUERY HANDLER ----------------
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    global users
+    check_and_reset_leaderboard() # যেকোনো বাটনে ক্লিক করলেই রিসেট চেক করবে
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
@@ -598,6 +667,24 @@ def callback_query(call):
             main_menu(chat_id, "✨ *স্বাগতম! সফলভাবে ভেরিফাই সম্পন্ন হয়েছে। প্রধান মেনু:*")
         else:
             bot.answer_callback_query(call.id, "আপনি এখনো চ্যানেলে জয়েন করেননি!", show_alert=True)
+        return
+
+    # --- CHECK MY RANK CALLBACK ---
+    if data == "check_my_rank":
+        all_top = list(users_collection.find().sort("completed_tasks", -1))
+        my_rank = "তালিকাভুক্ত নন"
+        my_tasks = 0
+        for idx, u in enumerate(all_top, 1):
+            if u.get("user_id") == user_id:
+                my_rank = f"নম্বর #{idx}"
+                my_tasks = u.get("completed_tasks", 0)
+                break
+        
+        user_doc = users_collection.find_one({"user_id": user_id})
+        if user_doc:
+            my_tasks = user_doc.get("completed_tasks", 0)
+            
+        bot.answer_callback_query(call.id, f"আপনার পজিশন: {my_rank}\nসম্পন্ন কাজ: {my_tasks} টি", show_alert=True)
         return
 
     if not check_user_subscription(user_id):
@@ -632,7 +719,7 @@ def callback_query(call):
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif data == "withdraw_recharge":
-        user_data = get_user_data(user_id)
+        user_data = get_user_data(user_id, call.from_user)
         if user_data["balance"] < MIN_RECHARGE:
             bot.answer_callback_query(call.id, "পর্যাপ্ত ব্যালেন্স নেই!", show_alert=True)
             bot.send_message(chat_id, f"❌ *আপনার ব্যালেন্স পর্যাপ্ত নয়! সর্বনিম্ন রিচার্জ সীমা {MIN_RECHARGE} BDT*", parse_mode="Markdown")
@@ -650,7 +737,7 @@ def callback_query(call):
 
     elif data in ["withdraw_bkash", "withdraw_nagad"]:
         method = "বিকাশ" if "bkash" in data else "নগদ"
-        user_data = get_user_data(user_id)
+        user_data = get_user_data(user_id, call.from_user)
         if user_data["balance"] < MIN_WITHDRAW:
             bot.answer_callback_query(call.id, "পর্যাপ্ত ব্যালেন্স নেই!", show_alert=True)
             bot.send_message(chat_id, f"❌ *আপনার ব্যালেন্স পর্যাপ্ত নয়! সর্বনিম্ন সীমা {MIN_WITHDRAW} BDT*", parse_mode="Markdown")
@@ -673,7 +760,7 @@ def callback_query(call):
         target_user_id = int(parts[1])
         amount = float(parts[2])
 
-        target_data = get_user_data(target_user_id)
+        target_data = users_collection.find_one({"user_id": target_user_id})
         if target_data:
             new_bal = target_data["balance"] + amount
             new_completed = target_data["completed_tasks"] + 1
@@ -702,7 +789,7 @@ def callback_query(call):
         target_user_id = int(parts[1])
         rejected_uid = parts[2] if len(parts) > 2 else "N/A"
 
-        target_data = get_user_data(target_user_id)
+        target_data = users_collection.find_one({"user_id": target_user_id})
         if target_data:
             if target_data.get("pending_tasks", 0) > 0:
                 update_user_data(target_user_id, {"pending_tasks": target_data["pending_tasks"] - 1})
@@ -716,7 +803,7 @@ def callback_query(call):
         amount = float(parts[2])
         method = parts[3] if len(parts) > 3 and "paid_" in data else "মোবাইল রিচার্জ"
 
-        target_data = get_user_data(target_user_id)
+        target_data = users_collection.find_one({"user_id": target_user_id})
         if target_data:
             remaining_balance = target_data.get("balance", 0.0)
             operator = target_data.get("operator", "")
@@ -757,5 +844,6 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    print("Bot is running perfectly without first/last names...")
+    print("Bot is running perfectly with Weekly Leaderboard Reset feature...")
     bot.infinity_polling()
+
