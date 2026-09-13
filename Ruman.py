@@ -30,14 +30,19 @@ BD_TZ = timezone(timedelta(hours=6))
 def check_and_reset_leaderboard():
     try:
         now_bd = datetime.now(BD_TZ)
+        # weekday(): 4 হলো শুক্রবার (Monday=0 ... Sunday=6)
         current_weekday = now_bd.weekday()
         current_hour = now_bd.hour
 
+        # স্টোরেজ থেকে লাস্ট রিসেটের সময় বা সাইকেল চেক করা
         reset_doc = settings_collection.find_one({"setting_type": "leaderboard_cycle"})
         
+        # বর্তমান সাইকেল নির্ধারণ (শুক্রবার রাত ৯টা থেকে পরবর্তী শুক্রবার রাত ৯টা)
+        # যদি আজ শুক্রবার এবং সময় রাত ৯টা বা তার বেশি হয়
         if current_weekday == 4 and current_hour >= 21:
             cycle_key = f"fri_9pm_{now_bd.strftime('%Y-%m-%d')}"
         else:
+            # গত শুক্রবারের তারিখ বের করা
             days_to_last_fri = (current_weekday - 4) % 7
             if days_to_last_fri == 0 and current_hour < 21:
                 days_to_last_fri = 7
@@ -45,6 +50,7 @@ def check_and_reset_leaderboard():
             cycle_key = f"fri_9pm_{last_fri.strftime('%Y-%m-%d')}"
 
         if not reset_doc or reset_doc.get("active_cycle") != cycle_key:
+            # রিসেট করার সময় হয়েছে! সব ইউজারের completed_tasks শূন্য করে দেওয়া হবে
             users_collection.update_many({}, {"$set": {"completed_tasks": 0}})
             settings_collection.update_one(
                 {"setting_type": "leaderboard_cycle"},
@@ -181,7 +187,7 @@ def check_user_subscription(user_id):
 # ---------------- START COMMAND ----------------
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
-    check_and_reset_leaderboard()
+    check_and_reset_leaderboard() # শুরুতেই রিসেট চেক করবে
     user_id = message.from_user.id
     args = message.text.split()
 
@@ -230,7 +236,7 @@ def main_menu(chat_id, text_msg):
 @bot.message_handler(func=lambda message: True, content_types=["text", "audio", "voice"])
 def handle_message(message):
     global CURRENT_PASSWORD, COOKIE_TASK_PRICE, TWOFA_TASK_PRICE
-    check_and_reset_leaderboard()
+    check_and_reset_leaderboard() # যেকোনো মেসেজে রিসেট চেক করবে
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -282,7 +288,7 @@ def handle_message(message):
                     update_prize(rank_no, new_amt)
                     bot.send_message(chat_id, f"✅ সফলভাবে {rank_no} নং পজিশনের পুরস্কার আপডেট করে `{new_amt} BDT` করা হয়েছে!", parse_mode="Markdown")
                 else:
-                    bot.send_message(chat_id, "❌ শুধু ১, ২ অথবা ৩ নম্বরের পুরস্কার পরিবর্তন করা যাবে।", parse_mode="Markdown")
+                    bot.send_message(chat_id, "❌ শুধু ১, ২ অথবা ৩ নম্বরের পুরস্কার পরিবর্তন করা যাবে। (যেমন: `/setprize 1 50`)", parse_mode="Markdown")
             except Exception:
                 bot.send_message(chat_id, "❌ সঠিক ফরম্যাটে লিখুন। উদাহরণ: `/setprize 1 50`", parse_mode="Markdown")
             return
@@ -307,7 +313,7 @@ def handle_message(message):
 
     if text == "❌ বাতিল":
         update_user_data(user_id, {"state": None})
-        main_menu(chat_id, "👑 *আপনাকে প্রধান মেনুতে ফিরিয়ে আনা হয়েছে!*")
+        main_menu(chat_id, "🏢 *প্রধান মেনুতে ফিরিয়ে আনা হয়েছে।*")
         return
 
     # --- LEADER BOARD BUTTON ---
@@ -337,7 +343,7 @@ def handle_message(message):
 
     user_state = user_data.get("state")
 
-    # --- COOKIES TASK FLOW (ফার্স্ট/লাস্ট নেম ছাড়া) ---
+    # --- COOKIES TASK FLOW ---
     if user_state == "waiting_for_uid_cookie":
         if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -345,7 +351,7 @@ def handle_message(message):
 
         uid = text
         if not uid.isdigit() or len(uid) < 5 or len(uid) > 20:
-            bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন (শুধুমাত্র সংখ্যা) অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
+            bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
         if uid in submitted_uids:
@@ -354,7 +360,7 @@ def handle_message(message):
             update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_cookies"})
             cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-            bot.send_message(chat_id, "🔒 *নিচে আপনার অ্যাকাউন্টর কুকিজ পেস্ট করুন* 👇", parse_mode="Markdown", reply_markup=cancel_markup)
+            bot.send_message(chat_id, "🛡️ *আপনার অ্যাকাউন্টের কুকিজ পেস্ট করুন 📍*", parse_mode="Markdown", reply_markup=cancel_markup)
         return
 
     elif user_state == "waiting_for_cookies":
@@ -362,15 +368,10 @@ def handle_message(message):
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
-        # কুকিজ ভ্যালিডেশন চেক
-        if "c_user" not in text:
-            bot.send_message(chat_id, "❌ *কুকিজ সঠিক নয়! দয়া করে আপনার সঠিক অ্যাকাউন্টর কুকিজ নিচে আবার পেস্ট করুন:*", parse_mode="Markdown")
-            return
-
         update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_finish_cookie_button"})
         finish_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         finish_markup.add(types.KeyboardButton("অ্যাকাউন্ট খোলা শেষ"), types.KeyboardButton("❌ বাতিল"))
-        bot.send_message(chat_id, "🍪 *কুকিজ গ্রহণ করা হয়েছে। অ্যাকাউন্ট জমা দিতে নিচের বাটনে চাপ দিন:*", parse_mode="Markdown", reply_markup=finish_markup)
+        bot.send_message(chat_id, "✅ *অ্যাকাউন্ট খোলা শেষ হলে নিচের বাটনে চাপ দিন:*", parse_mode="Markdown", reply_markup=finish_markup)
         return
 
     elif user_state == "waiting_for_finish_cookie_button":
@@ -389,11 +390,11 @@ def handle_message(message):
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{user_id}_{uid}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup)
-            
-            main_menu(chat_id, "✅ *আপনার কাজ সফলভাবে গ্রহণ করা হয়েছে।*")
+            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে! আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে।*", parse_mode="Markdown")
+            main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
-    # --- 2FA TASK FLOW (ফার্স্ট/লাস্ট নেম ছাড়া ও অটো ওটিপি জেনারেট) ---
+    # --- 2FA TASK FLOW ---
     elif user_state == "waiting_for_uid_2fa":
         if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -401,7 +402,7 @@ def handle_message(message):
 
         uid = text
         if not uid.isdigit() or len(uid) < 5 or len(uid) > 20:
-            bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন (শুধুমাত্র সংখ্যা) অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
+            bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
         if uid in submitted_uids:
@@ -410,7 +411,7 @@ def handle_message(message):
             update_user_data(user_id, {"temp_uid": uid, "state": "waiting_for_cookies_2fa"})
             cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-            bot.send_message(chat_id, "🔒 *নিচে আপনার অ্যাকাউন্টর কুকিজ পেস্ট করুন* 👇", parse_mode="Markdown", reply_markup=cancel_markup)
+            bot.send_message(chat_id, "🛡️ *আপনার অ্যাকাউন্টের কুকিজ পেস্ট করুন 📍*", parse_mode="Markdown", reply_markup=cancel_markup)
         return
 
     elif user_state == "waiting_for_cookies_2fa":
@@ -418,12 +419,8 @@ def handle_message(message):
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
-        if "c_user" not in text:
-            bot.send_message(chat_id, "❌ *কুকিজ সঠিক নয়! দয়া করে সঠিক কুকিজ দিন:*", parse_mode="Markdown")
-            return
-
         update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_2fa_key"})
-        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboards=True) if hasattr(types, 'ReplyKeyboardMarkup') else types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
         bot.send_message(chat_id, "🛡️ *এখন 2FA Key টি দিন: ⬇️*", parse_mode="Markdown", reply_markup=cancel_markup)
         return
@@ -475,8 +472,8 @@ def handle_message(message):
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{user_id}_{uid}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup_admin)
-            
-            main_menu(chat_id, "✅ *আপনার কাজ সফলভাবে গ্রহণ করা হয়েছে।*")
+            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে! আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে।*", parse_mode="Markdown")
+            main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
         return
 
     # --- RECHARGE / WITHDRAW STATES ---
@@ -616,11 +613,10 @@ def handle_message(message):
         bot.send_message(chat_id, reply_text, parse_mode="Markdown")
 
     elif text == "💼 কাজ":
-        # এখানে শুধু ফেসবুক কাজ এবং বাতিল বাটন রাখা হয়েছে (ভিডিওর মতো)
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("📘 Facebook কাজ", callback_data="facebook_kaz"))
-        markup.add(types.InlineKeyboardButton("❌ বাতিল", callback_data="cancel_task"))
-        bot.send_message(chat_id, "✏️ *যেকোনো একটি কাজ সিলেক্ট করুন:*\n👇", parse_mode="Markdown", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton(f"Fb Cookies ({COOKIE_TASK_PRICE:.2f} BDT)", callback_data="fb_cookie_task"))
+        markup.add(types.InlineKeyboardButton(f"Fb 2FA ({TWOFA_TASK_PRICE:.2f} BDT)", callback_data="fb_2fa_task"))
+        bot.send_message(chat_id, "✏️ *নিচের কাজটি সিলেক্ট করুন:*\n👇", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📤 উত্তোলন":
         markup = types.InlineKeyboardMarkup()
@@ -634,7 +630,7 @@ def handle_message(message):
             "🟢 *গ্রাহক সেবা কেন্দ্র*\n\n"
             "সম্মানিত মেম্বার,\n"
             "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন। we are online 24 hours.\n\n"
-            "🙇‍♂️ *অ্যাডমিন সাপোর্ট:* এডমিনের সাথে সরাসরি কথা বলতে চাইলে আপনাকে বট থেকে কমপক্ষে ৫০০ টাকা ইনকাম করতে হবে።\n\n"
+            "🙇‍♂️ *অ্যাডমিন সাপোর্ট:* এডমিনের সাথে সরাসরি কথা বলতে চাইলে আপনাকে বট থেকে কমপক্ষে ৫০০ টাকা ইনকাম করতে হবে।\n\n"
             "🆙 *আপডেট:* নিয়মিত কাজের আপডেট পেতে নিচের লিংকে ক্লিক করে আমাদের অফিসিয়াল চ্যানেলে জয়েন থাকুন।"
         )
         support_markup = types.InlineKeyboardMarkup()
@@ -656,7 +652,7 @@ def handle_message(message):
 # ---------------- CALLBACK QUERY HANDLER ----------------
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    check_and_reset_leaderboard()
+    check_and_reset_leaderboard() # যেকোনো বাটনে ক্লিক করলেই রিসেট চেক করবে
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
@@ -673,6 +669,7 @@ def callback_query(call):
             bot.answer_callback_query(call.id, "আপনি এখনো চ্যানেলে জয়েন করেননি!", show_alert=True)
         return
 
+    # --- CHECK MY RANK CALLBACK ---
     if data == "check_my_rank":
         all_top = list(users_collection.find().sort("completed_tasks", -1))
         my_rank = "তালিকাভুক্ত নন"
@@ -697,28 +694,6 @@ def callback_query(call):
     if data.startswith("copy_code_"):
         code_to_copy = data.replace("copy_code_", "")
         bot.answer_callback_query(call.id, f"কোড কপি হয়েছে: {code_to_copy}", show_alert=True)
-        return
-
-    if data == "cancel_task":
-        update_user_data(user_id, {"state": None})
-        try:
-            bot.delete_message(chat_id, call.message.message_id)
-        except Exception:
-            pass
-        bot.send_message(chat_id, "👑 *আপনাকে প্রধান মেনুতে ফিরিয়ে আনা হয়েছে!*", parse_mode="Markdown")
-        return
-
-    # --- ফেসবুক কাজ সাব-মেনু (ভিডিওর মতো) ---
-    if data == "facebook_kaz":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(f"📘 Fb Cookies ({COOKIE_TASK_PRICE:.2f} BDT)", callback_data="fb_cookie_task"))
-        markup.add(types.InlineKeyboardButton(f"📘 Fb 2FA ({TWOFA_TASK_PRICE:.2f} BDT)", callback_data="fb_2fa_task"))
-        markup.add(types.InlineKeyboardButton("❌ বাতিল", callback_data="cancel_task"))
-        
-        try:
-            bot.edit_message_text("🔻 *নিচের কাজটি সিলেক্ট করুন:*\n👇", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
-        except Exception:
-            bot.send_message(chat_id, "🔻 *নিচের কাজটি সিলেক্ট করুন:*\n👇", parse_mode="Markdown", reply_markup=markup)
         return
 
     if data == "fb_cookie_task":
