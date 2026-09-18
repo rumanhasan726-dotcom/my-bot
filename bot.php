@@ -17,6 +17,8 @@ function getMongoCollection($collectionName) {
             if (!class_exists('MongoDB\Client')) {
                 if (file_exists('vendor/autoload.php')) {
                     require_once 'vendor/autoload.php';
+                } else {
+                    die("Vendor autoload.php not found! Please run composer install.");
                 }
             }
             $client = new MongoDB\Client(MONGO_URI);
@@ -68,27 +70,27 @@ function readDB($filename) {
         $cursor = $collection->find();
         $users = [];
         foreach ($cursor as $doc) {
-            $arr = (array)$doc;
+            $arr = json_decode(json_encode($doc), true);
             if (isset($arr['user_id'])) {
-                $users[(string)$arr['user_id']] = json_decode(json_encode($arr), true);
+                $users[(string)$arr['user_id']] = $arr;
             }
         }
         return $users;
     } elseif ($col_name == 'settings') {
         $doc = $collection->findOne(['_id' => 'bot_settings']);
         if ($doc) {
-            $arr = (array)$doc;
+            $arr = json_decode(json_encode($doc), true);
             unset($arr['_id']);
-            return json_decode(json_encode($arr), true);
+            return $arr;
         }
         return [];
     } else {
         $cursor = $collection->find();
         $data = [];
         foreach ($cursor as $doc) {
-            $arr = (array)$doc;
+            $arr = json_decode(json_encode($doc), true);
             unset($arr['_id']);
-            $data[] = json_decode(json_encode($arr), true);
+            $data[] = $arr;
         }
         return $data;
     }
@@ -101,6 +103,7 @@ function writeDB($filename, $data) {
     if ($col_name == 'users') {
         foreach ($data as $uid => $user_data) {
             $user_data['user_id'] = (string)$uid;
+            unset($user_data['_id']);
             $collection->updateOne(
                 ['user_id' => (string)$uid],
                 ['$set' => $user_data],
@@ -119,10 +122,12 @@ function writeDB($filename, $data) {
         if (!empty($data)) {
             $clean_data = [];
             foreach ($data as $item) {
-                unset($item['_id']);
+                if (isset($item['_id'])) unset($item['_id']);
                 $clean_data[] = $item;
             }
-            $collection->insertMany($clean_data);
+            if (!empty($clean_data)) {
+                $collection->insertMany($clean_data);
+            }
         }
     }
     return true;
@@ -191,7 +196,7 @@ function bot($method, $datas = []) {
 
 if (empty($s['bot_username'])) {
     $me = bot('getMe');
-    if ($me['ok']) {
+    if (isset($me['ok']) && $me['ok']) {
         $s['bot_username'] = $me['result']['username'];
         writeDB('settings.json', $s);
     }
