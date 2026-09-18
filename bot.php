@@ -35,7 +35,7 @@ function getMongoCollection($collectionName) {
 define('API_KEY', '8965009856:AAE3bj58hOGw083tDuKFVy-d1DPiO_gs0ew'); 
 define('ADMIN_ID', '8449043852'); 
 
-$bot_username = "Social_Earning_master_bot";
+$bot_username = "@R4_OTP_bot";
 
 // ==========================================
 // 🎨 CUSTOM EMOJI IDS
