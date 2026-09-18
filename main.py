@@ -58,6 +58,18 @@ def check_and_reset_leaderboard():
     except Exception as e:
         print(f"Leaderboard reset error: {e}")
 
+# ডাটাবেজ থেকে দৈনিক পাসওয়ার্ড ম্যানেজ করার ফাংশন
+def get_current_password():
+    s = settings_collection.find_one({"setting_type": "app_password"})
+    if not s:
+        default_pass = "Jahanur@08"
+        settings_collection.update_one({"setting_type": "app_password"}, {"$set": {"password": default_pass}}, upsert=True)
+        return default_pass
+    return s.get("password", "Jahanur@08")
+
+def update_current_password(new_pass):
+    settings_collection.update_one({"setting_type": "app_password"}, {"$set": {"password": new_pass}}, upsert=True)
+
 def get_prizes():
     s = settings_collection.find_one({"setting_type": "prizes"})
     if not s:
@@ -151,7 +163,6 @@ ADMIN_ID = 8449043852  # আপনার অ্যাডমিন আইডি
 FORCE_CHANNEL_USERNAME = "@R4_Work_Sapait"
 FORCE_CHANNEL_LINK = "https://t.me/R4_Work_Sapait"
 
-CURRENT_PASSWORD = "Jahanur@08"
 COOKIE_TASK_PRICE = 4.80
 TWOFA_TASK_PRICE = 5.40
 
@@ -237,7 +248,6 @@ def main_menu(chat_id, text_msg):
     
     markup.add(btn_balance, btn_work, btn_withdraw, btn_support, btn_refer, btn_leaderboard)
     
-    # শুধুমাত্র আপনি (ADMIN_ID) হলে তবেই মূল মেনুতে সিক্রেট অ্যাডমিন প্যানেল বাটন দেখতে পাবেন
     if user_id == ADMIN_ID:
         markup.add(types.KeyboardButton("🛠️ অ্যাডমিন প্যানেল"))
 
@@ -246,12 +256,11 @@ def main_menu(chat_id, text_msg):
 # ---------------- MESSAGE & ADMIN HANDLER ----------------
 @bot.message_handler(func=lambda message: True, content_types=["text", "audio", "voice"])
 def handle_message(message):
-    global CURRENT_PASSWORD, COOKIE_TASK_PRICE, TWOFA_TASK_PRICE
     check_and_reset_leaderboard()
     chat_id = message.chat.id
     user_id = message.from_user.id
 
-    get_user_data(user_id, message.from_user)
+    user_data = get_user_data(user_id, message.from_user)
 
     if not check_user_subscription(user_id):
         markup = types.InlineKeyboardMarkup()
@@ -311,16 +320,14 @@ def handle_message(message):
             return
 
         if text == "🔑 দৈনিক পাসওয়ার্ড সেট":
-            user_data = get_user_data(user_id, message.from_user)
             update_user_data(user_id, {"state": "setting_password"})
-            bot.send_message(chat_id, "আজকের নতুন পাসওয়ার্ডটি লিখে পাঠান, যা ইউজাররা কাজ জমা দেওয়ার সময় দেখতে পাবে:")
+            bot.send_message(chat_id, f"বর্তমান পাসওয়ার্ড: `{get_current_password()}`\n\nআজকের নতুন পাসওয়ার্ডটি লিখে পাঠান, যা ইউজাররা কাজ জমা দেওয়ার সময় দেখতে পাবে:", parse_mode="Markdown")
             return
 
         if user_data.get("state") == "setting_password":
             update_user_data(user_id, {"state": None})
-            global CURRENT_PASSWORD
-            CURRENT_PASSWORD = text
-            bot.send_message(chat_id, f"✅ আজকের নতুন পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে: `{CURRENT_PASSWORD}`", parse_mode="Markdown")
+            update_current_password(text)
+            bot.send_message(chat_id, f"✅ আজকের নতুন পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে: `{text}`", parse_mode="Markdown")
             return
 
         if text == "📥 উইথড্র পেন্ডিং":
@@ -342,6 +349,13 @@ def handle_message(message):
                     types.InlineKeyboardButton("❌ বাতিল করুন", callback_data=f"wdrej_{wd['_id']}")
                 )
                 bot.send_message(chat_id, wd_text, parse_mode="Markdown", reply_markup=markup)
+            return
+
+        if text.startswith("/setpass "):
+            new_pass = text.replace("/setpass ", "").strip()
+            if new_pass:
+                update_current_password(new_pass)
+                bot.send_message(chat_id, f"✅ নতুন পাসওয়ার্ড সেট করা হয়েছে: `{new_pass}`", parse_mode="Markdown")
             return
 
         if text.startswith("/setbal "):
@@ -377,15 +391,9 @@ def handle_message(message):
                 bot.send_message(chat_id, "❌ সঠিক নিয়মে লিখুন। উদাহরণ: `/setpentasks 123456789 0`", parse_mode="Markdown")
             return
 
-        if text.startswith("/setpass "):
-            new_pass = text.replace("/setpass ", "").strip()
-            if new_pass:
-                CURRENT_PASSWORD = new_pass
-                bot.send_message(chat_id, f"✅ নতুন পাসওয়ার্ড: `{CURRENT_PASSWORD}`", parse_mode="Markdown")
-            return
-
         if text.startswith("/setcookieprice "):
             try:
+                global COOKIE_TASK_PRICE
                 COOKIE_TASK_PRICE = float(text.replace("/setcookieprice ", "").strip())
                 bot.send_message(chat_id, f"✅ কুকিজ টাস্কের নতুন প্রাইস: `{COOKIE_TASK_PRICE:.2f} BDT`", parse_mode="Markdown")
             except ValueError:
@@ -394,6 +402,7 @@ def handle_message(message):
 
         if text.startswith("/set2faprice "):
             try:
+                global TWOFA_TASK_PRICE
                 TWOFA_TASK_PRICE = float(text.replace("/set2faprice ", "").strip())
                 bot.send_message(chat_id, f"✅ 2FA টাস্কের নতুন প্রাইস: `{TWOFA_TASK_PRICE:.2f} BDT`", parse_mode="Markdown")
             except ValueError:
@@ -430,7 +439,14 @@ def handle_message(message):
         return
 
     text = message.text.strip()
-    user_data = get_user_data(user_id, message.from_user)
+    user_state = user_data.get("state")
+
+    # যদি অ্যাডমিন পাসওয়ার্ড সেট করার স্টেটে থাকেন
+    if user_id == ADMIN_ID and user_state == "setting_password":
+        update_user_data(user_id, {"state": None})
+        update_current_password(text)
+        bot.send_message(chat_id, f"✅ আজকের নতুন পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে: `{text}`", parse_mode="Markdown")
+        return
 
     if text == "❌ বাতিল":
         update_user_data(user_id, {"state": None})
@@ -460,8 +476,6 @@ def handle_message(message):
         markup.add(types.InlineKeyboardButton("🔍 আমার পজিশন চেক করুন", callback_data="check_my_rank"))
         bot.send_message(chat_id, lb_text, parse_mode="Markdown", reply_markup=markup)
         return
-
-    user_state = user_data.get("state")
 
     # --- COOKIES TASK FLOW ---
     if user_state == "waiting_for_uid_cookie":
@@ -756,7 +770,6 @@ def handle_message(message):
         update_user_data(user_id, {"state": None, "balance": new_balance})
         uname = message.from_user.username or "None"
 
-        # উইথড্র রিকোয়েস্ট উইথড্রস কালেকশনে সেভ করা
         withdraws_collection.insert_one({
             "user_id": user_id,
             "amount": amount,
@@ -912,23 +925,25 @@ def callback_query(call):
         return
 
     if data == "fb_cookie_task":
-        update_user_data(user_id, {"state": "waiting_for_uid_cookie", "task_type": "cookie", "task_password": CURRENT_PASSWORD})
+        current_pass = get_current_password()
+        update_user_data(user_id, {"state": "waiting_for_uid_cookie", "task_type": "cookie", "task_password": current_pass})
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
         task_msg = (
             f"🔵 *Facebook Account Creation Info:*\n\n"
-            f"• Password : `{CURRENT_PASSWORD}`\n\n"
+            f"• Password : `{current_pass}`\n\n"
             f"🟩 *অ্যাকাউন্ট তৈরি করা হয়ে গেলে, আপনার Facebook User ID (UID) লিখে পাঠান:*"
         )
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif data == "fb_2fa_task":
-        update_user_data(user_id, {"state": "waiting_for_uid_2fa", "task_type": "2fa", "task_password": CURRENT_PASSWORD})
+        current_pass = get_current_password()
+        update_user_data(user_id, {"state": "waiting_for_uid_2fa", "task_type": "2fa", "task_password": current_pass})
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
         task_msg = (
             f"🔵 *Facebook Account Creation Info:*\n\n"
-            f"• Password : `{CURRENT_PASSWORD}`\n\n"
+            f"• Password : `{current_pass}`\n\n"
             f"🟩 *অ্যাকাউন্ট তৈরি করা হয়ে গেলে, আপনার Facebook User ID (UID) লিখে পাঠান:*"
         )
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
@@ -1074,6 +1089,6 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    print("Bot is running perfectly with Admin Panel & Security Integration...")
+    print("Bot is running perfectly with Admin Password Management & Security Integration...")
     bot.infinity_polling()
 
