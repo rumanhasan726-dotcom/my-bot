@@ -16,6 +16,7 @@ COPY . /app
 
 RUN composer install --ignore-platform-reqs
 
-CMD ["php", "-S", "0.0.0.0:10000", "bot.php"]
+CMD ["php", "bot.php"]
+
 
 
