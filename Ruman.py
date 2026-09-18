@@ -3,13 +3,9 @@ import os
 import re
 import telebot
 from telebot import types
-import threading
-from pymongo import MongoClient
-import pyotp
-from datetime import datetime, timezone, timedelta
+im
 
-# ---------------- CONFIGURATION ----------------
-TOKEN = "8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHWw"
+# ---------------- CONFIGURATION ---------------
 bot = telebot.TeleBot(TOKEN)
 
 # MongoDB Connection & Collections Setup
@@ -46,12 +42,7 @@ def check_and_reset_leaderboard():
 
         if not reset_doc or reset_doc.get("active_cycle") != cycle_key:
             users_collection.update_many({}, {"$set": {"completed_tasks": 0}})
-            settings_collection.update_one(
-                {"setting_type": "leaderboard_cycle"},
-                {"$set": {"active_cycle": cycle_key}},
-                upsert=True
-            )
-            print(f"Leaderboard reset successfully for cycle: {cycle_key}")
+     
     except Exception as e:
         print(f"Leaderboard reset error: {e}")
 
