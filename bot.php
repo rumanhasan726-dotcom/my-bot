@@ -30,7 +30,7 @@ function getMongoCollection($collectionName) {
 // ==========================================
 //  BOT CONFIGURATION
 // ==========================================
-define('API_KEY', '8965009856:AAGhnMhMFcKOogNC_Hepq7ZlPamuKJ2vHW'); 
+define('API_KEY', '8965009856:AAE3bj58hOGw083tDuKFVy-d1DPiO_gs0ew'); 
 define('ADMIN_ID', '8449043852'); 
 
 $bot_username = "Social_Earning_master_bot";
