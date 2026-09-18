@@ -14,7 +14,7 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 WORKDIR /app
 COPY . /app
 
-RUN composer install
+RUN composer install --ignore-platform-reqs
 
 CMD ["php", "bot.php"]
 
