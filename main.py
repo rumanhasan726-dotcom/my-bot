@@ -7,6 +7,7 @@ import threading
 from pymongo import MongoClient
 import pyotp
 from datetime import datetime, timezone, timedelta
+from bson.objectid import ObjectId
 
 # ---------------- CONFIGURATION ----------------
 TOKEN = "8965009856:AAE3bj58hOGw083tDuKFVy-d1DPiO_gs0ew"
@@ -19,7 +20,8 @@ try:
     db = mongo_client["telegram_bot_db"]
     users_collection = db["users"]
     settings_collection = db["settings"]
-    tasks_collection = db["tasks"] # কাজের ডাটাবেজ কালেকশন যুক্ত করা হলো
+    tasks_collection = db["tasks"]
+    withdraws_collection = db["withdraws"]
     print("Connected to MongoDB successfully!")
 except Exception as e:
     print(f"MongoDB connection error: {e}")
@@ -27,7 +29,7 @@ except Exception as e:
 # বাংলাদেশ সময় জোন (UTC+6)
 BD_TZ = timezone(timedelta(hours=6))
 
-# উইকলি রিসেট চেক করার ফাংশন (প্রতি শুক্রবার রাত ৯টা)
+# উইকলি রিসেট চেক করার ফাংশন (প্রতিশুক্রবার রাত ৯টা)
 def check_and_reset_leaderboard():
     try:
         now_bd = datetime.now(BD_TZ)
@@ -223,6 +225,7 @@ def send_welcome(message):
 
 def main_menu(chat_id, text_msg):
     update_user_data(chat_id, {"state": None})
+    user_id = chat_id
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn_balance = types.KeyboardButton("💰 ব্যালেন্স")
@@ -233,6 +236,11 @@ def main_menu(chat_id, text_msg):
     btn_leaderboard = types.KeyboardButton("🏆 Leader Board")
     
     markup.add(btn_balance, btn_work, btn_withdraw, btn_support, btn_refer, btn_leaderboard)
+    
+    # শুধুমাত্র আপনি (ADMIN_ID) হলে তবেই মূল মেনুতে সিক্রেট অ্যাডমিন প্যানেল বাটন দেখতে পাবেন
+    if user_id == ADMIN_ID:
+        markup.add(types.KeyboardButton("🛠️ অ্যাডমিন প্যানেল"))
+
     bot.send_message(chat_id, text_msg, parse_mode="Markdown", reply_markup=markup)
 
 # ---------------- MESSAGE & ADMIN HANDLER ----------------
@@ -257,9 +265,84 @@ def handle_message(message):
         )
         return
 
-    # --- ADMIN COMMANDS FOR EDITING USER DATA ---
+    # --- ADMIN TEXT COMMANDS & BULK COPY/CLEAR HANDLERS ---
     if user_id == ADMIN_ID and message.content_type == "text":
         text = message.text.strip()
+
+        if text == "🛠️ অ্যাডমিন প্যানেল":
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(types.KeyboardButton("📊 কুকিজ লিস্ট (কপি)"), types.KeyboardButton("📊 2FA লিস্ট (কপি)"))
+            markup.add(types.KeyboardButton("🗑️ কুকিজ ক্লিয়ার করুন"), types.KeyboardButton("🗑️ 2FA ক্লিয়ার করুন"))
+            markup.add(types.KeyboardButton("📥 উইথড্র পেন্ডিং"), types.KeyboardButton("🔑 দৈনিক পাসওয়ার্ড সেট"))
+            markup.add(types.KeyboardButton("🔙 মূল মেনু"))
+            bot.send_message(chat_id, "অ্যাডমিন প্যানেলে স্বাগতম:", reply_markup=markup)
+            return
+
+        if text == "🔙 মূল মেনু":
+            main_menu(chat_id, "🏢 *প্রধান মেনুতে ফিরিয়ে আনা হয়েছে।*")
+            return
+
+        if text in ["📊 কুকিজ লিস্ট (কপি)", "📊 2FA লিস্ট (কপি)"]:
+            category = "cookie" if "কুকিজ" in text else "2fa"
+            pending_tasks = list(tasks_collection.find({"task_type": category, "status": "pending"}))
+            
+            if not pending_tasks:
+                bot.send_message(chat_id, f"❌ বর্তমানে এই ক্যাটাগরির কোনো পেন্ডিং ডাটা নেই।")
+                return
+
+            all_data_text = ""
+            for idx, task in enumerate(pending_tasks, 1):
+                if category == "cookie":
+                    all_data_text += f"{task.get('uid')}\t{task.get('cookies')}\n"
+                else:
+                    all_data_text += f"{task.get('uid')}\t{task.get('2fa_key')}\t{task.get('cookies')}\n"
+
+            bot.send_message(
+                chat_id,
+                f"📋 **পেন্ডিং লিস্ট (Google Sheet এ এক ক্লিকে পেস্ট করার উপযোগী):**\n\n`{all_data_text}`\n\n*কপি করা শেষ হলে অ্যাডমিন প্যানেল থেকে 'ক্লিয়ার করুন' বাটনে চাপ দিয়ে এগুলো মুছে ফেলতে পারবেন।*",
+                parse_mode="Markdown"
+            )
+            return
+
+        if text in ["🗑️ কুকিজ ক্লিয়ার করুন", "🗑️ 2FA ক্লিয়ার করুন"]:
+            category = "cookie" if "কুকিজ" in text else "2fa"
+            result = tasks_collection.delete_many({"task_type": category, "status": "pending"})
+            bot.send_message(chat_id, f"🗑️ সফলভাবে {result.deleted_count}টি পেন্ডিং ডাটা ক্লিয়ার বা ডিলিট করা হয়েছে!")
+            return
+
+        if text == "🔑 দৈনিক পাসওয়ার্ড সেট":
+            user_data = get_user_data(user_id, message.from_user)
+            update_user_data(user_id, {"state": "setting_password"})
+            bot.send_message(chat_id, "আজকের নতুন পাসওয়ার্ডটি লিখে পাঠান, যা ইউজাররা কাজ জমা দেওয়ার সময় দেখতে পাবে:")
+            return
+
+        if user_data.get("state") == "setting_password":
+            update_user_data(user_id, {"state": None})
+            global CURRENT_PASSWORD
+            CURRENT_PASSWORD = text
+            bot.send_message(chat_id, f"✅ আজকের নতুন পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে: `{CURRENT_PASSWORD}`", parse_mode="Markdown")
+            return
+
+        if text == "📥 উইথড্র পেন্ডিং":
+            pending_withdraws = list(withdraws_collection.find({"status": "pending"}))
+            if not pending_withdraws:
+                bot.send_message(chat_id, "❌ বর্তমানে কোনো পেন্ডিং উইথড্র নেই।")
+                return
+
+            for wd in pending_withdraws:
+                wd_text = (
+                    f"👤 **ইউজার আইডি:** `{wd['user_id']}`\n"
+                    f"💰 **পরিমাণ:** ৳{wd['amount']}\n"
+                    f"📱 **ডিজিট/নম্বর:** {wd['details']}\n"
+                    f"⏰ **সময়:** {wd['created_at']}"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(
+                    types.InlineKeyboardButton("✅ সফল করুন (Success)", callback_data=f"wdok_{wd['_id']}"),
+                    types.InlineKeyboardButton("❌ বাতিল করুন", callback_data=f"wdrej_{wd['_id']}")
+                )
+                bot.send_message(chat_id, wd_text, parse_mode="Markdown", reply_markup=markup)
+            return
 
         if text.startswith("/setbal "):
             try:
@@ -382,7 +465,7 @@ def handle_message(message):
 
     # --- COOKIES TASK FLOW ---
     if user_state == "waiting_for_uid_cookie":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -401,7 +484,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_cookies":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
@@ -420,7 +503,6 @@ def handle_message(message):
 
             submitted_uids.add(uid)
             
-            # টাস্কটি সরাসরি ইনবক্সে না পাঠিয়ে ডাটাবেজে পেন্ডিং হিসেবে সেভ করা
             task_doc = {
                 "user_id": user_id,
                 "username": uname,
@@ -437,7 +519,6 @@ def handle_message(message):
 
             update_user_data(user_id, {"pending_tasks": current_data.get("pending_tasks", 0) + 1, "state": None})
 
-            # গুগল শিটে এক ক্লিকে বসানোর উপযোগী ট্যাব-সেপারেটেড ফরম্যাট (UID \t Cookies)
             row_data = f"{uid}\t{cookies}"
 
             admin_msg = (
@@ -461,7 +542,7 @@ def handle_message(message):
 
     # --- 2FA TASK FLOW ---
     elif user_state == "waiting_for_uid_2fa":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -480,7 +561,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_cookies_2fa":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
@@ -491,7 +572,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_2fa_key":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *2FA Key দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
             return
 
@@ -529,7 +610,6 @@ def handle_message(message):
 
             submitted_uids.add(uid)
             
-            # 2FA টাস্কটি সরাসরি ইনবক্সে না পাঠিয়ে ডাটাবেজে পেন্ডিং হিসেবে সেভ করা
             task_doc = {
                 "user_id": user_id,
                 "username": uname,
@@ -546,7 +626,6 @@ def handle_message(message):
 
             update_user_data(user_id, {"pending_tasks": current_data.get("pending_tasks", 0) + 1, "state": None})
 
-            # গুগল শিটে এক ক্লিকে বসানোর উপযোগী ট্যাব-সেপারেটেড ফরম্যাট (UID \t 2FA Key \t Cookies)
             row_data = f"{uid}\t{key_clean}\t{cookies}"
 
             admin_msg = (
@@ -572,7 +651,7 @@ def handle_message(message):
 
     # --- RECHARGE / WITHDRAW STATES ---
     elif user_state == "waiting_for_recharge_number":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -590,7 +669,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_recharge_amount":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -634,7 +713,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_withdraw_number":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -651,7 +730,7 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_withdraw_amount":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board"]:
+        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল"]:
             bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
             return
 
@@ -676,6 +755,15 @@ def handle_message(message):
         new_balance = balance - amount
         update_user_data(user_id, {"state": None, "balance": new_balance})
         uname = message.from_user.username or "None"
+
+        # উইথড্র রিকোয়েস্ট উইথড্রস কালেকশনে সেভ করা
+        withdraws_collection.insert_one({
+            "user_id": user_id,
+            "amount": amount,
+            "details": f"{method} - {phone}",
+            "status": "pending",
+            "created_at": datetime.now(BD_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        })
 
         admin_msg = f"📤 *নতুন উইথড্র রিকোয়েস্ট!*\n\n👤 ইউজার ID: `{user_id}`\n🌐 ইউজারনেম: @{uname}\n💼 মাধ্যম: {method}\n📞 নম্বর: `{phone}`\n💰 পরিমাণ: {amount} BDT"
         markup = types.InlineKeyboardMarkup()
@@ -752,6 +840,38 @@ def callback_query(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
+
+    if data.startswith("wdok_") or data.startswith("wdrej_"):
+        if user_id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "আপনার এই কাজটি করার অনুমতি নেই!", show_alert=True)
+            return
+
+        action, wd_id_str = data.split('_', 1)
+        wd_id = ObjectId(wd_id_str)
+        wd = withdraws_collection.find_one({"_id": wd_id})
+
+        if not wd or wd["status"] != "pending":
+            bot.answer_callback_query(call.id, "এই উইথড্র ইতিমধ্যে প্রসেস করা হয়েছে!")
+            return
+
+        if action == "wdok":
+            withdraws_collection.update_one({"_id": wd_id}, {"$set": {"status": "success"}})
+            bot.answer_callback_query(call.id, "উইথড্র সফল করা হয়েছে!")
+            bot.edit_message_text(f"✅ **উইথড্র সফল (Success)**\nইউজার: `{wd['user_id']}` | টাকা: ৳{wd['amount']}", chat_id, call.message.message_id, parse_mode="Markdown")
+            try:
+                bot.send_message(wd['user_id'], f"🎉 আপনার ৳{wd['amount']} এর উইথড্র রিকোয়েস্ট সফলভাবে পেমেন্ট করা হয়েছে!")
+            except:
+                pass
+        elif action == "wdrej":
+            withdraws_collection.update_one({"_id": wd_id}, {"$set": {"status": "rejected"}})
+            users_collection.update_one({"user_id": wd['user_id']}, {"$inc": {"balance": wd['amount']}})
+            bot.answer_callback_query(call.id, "উইথড্র বাতিল করা হয়েছে এবং টাকা ফেরত দেওয়া হয়েছে।")
+            bot.edit_message_text(f"❌ **উইথড্র বাতিল (Rejected)**\nইউজার: `{wd['user_id']}`", chat_id, call.message.message_id, parse_mode="Markdown")
+            try:
+                bot.send_message(wd['user_id'], f"⚠️ আপনার উইথড্র রিকোয়েস্টটি বাতিল করা হয়েছে এবং আপনার ব্যালেন্স রিফান্ড করা হয়েছে।")
+            except:
+                pass
+        return
 
     if data == "verify_sub":
         if check_user_subscription(user_id):
@@ -851,7 +971,6 @@ def callback_query(call):
         bot.send_message(chat_id, f"📱 *সিম সিলেক্ট করা হয়েছে: {operator_name}*\n\nআপনার **১১ ডিজিটের মোবাইল নম্বরটি** দিন:", parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif data.startswith("approve_") and user_id == ADMIN_ID:
-        from bson.objectid import ObjectId
         parts = data.split("_")
         task_id = parts[1]
 
@@ -889,7 +1008,6 @@ def callback_query(call):
             bot.answer_callback_query(call.id, "এই কাজটি ইতিমধ্যে প্রসেস করা হয়েছে!", show_alert=True)
 
     elif data.startswith("reject_") and user_id == ADMIN_ID:
-        from bson.objectid import ObjectId
         parts = data.split("_")
         task_id = parts[1]
 
@@ -956,5 +1074,6 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    print("Bot is running perfectly with Admin Edit System...")
+    print("Bot is running perfectly with Admin Panel & Security Integration...")
     bot.infinity_polling()
+
