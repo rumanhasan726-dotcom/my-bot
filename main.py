@@ -301,7 +301,7 @@ def handle_message(message):
         if text == "📤 উইথড্র পেন্ডিং":
             pendings = list(withdraws_collection.find({"status": "pending"}))
             if not pendings:
-                bot.send_message(chat_id, "📭 কোনো পেন্ডিং উইথড্র রিকোয়েস্ট নেইলাইন।", parse_mode="Markdown")
+                bot.send_message(chat_id, "📭 কোনো পেন্ডিং উইথড্র রিকোয়েস্ট নেই।", parse_mode="Markdown")
                 return
             for p in pendings:
                 p_text = (
@@ -345,7 +345,7 @@ def handle_message(message):
 
     if text == "❌ বাতিল":
         update_user_data(user_id, {"state": None})
-        main_menu(chat_id, "🏢 *প্রধান মেনুতে ফিরিয়ে আনা হয়েছে।*")
+        main_menu(chat_id, "❌ *মেনুতে ফিরে আসা হয়েছে!*")
         return
 
     if text == "🏆 Leader Board":
@@ -716,10 +716,11 @@ def handle_message(message):
         markup.add(types.InlineKeyboardButton("বিকাশ -> সর্বনিম্ন ১০০টাকা (৫ টাকা চার্জ)", callback_data="withdraw_bkash"))
         markup.add(types.InlineKeyboardButton("নগদ -> সর্বনিম্ন ১০০টাকা (৫ টাকা চার্জ)", callback_data="withdraw_nagad"))
         markup.add(types.InlineKeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০টাকা", callback_data="withdraw_recharge"))
+        markup.add(types.InlineKeyboardButton("🔙 ফিরে যান", callback_data="back_to_main_menu"))
         
         # এখানে Reply কিবোর্ড হাইড করে ইনলাইন কিবোর্ড পাঠানো হচ্ছে
         remove_markup = types.ReplyKeyboardRemove()
-        bot.send_message(chat_id, "নিচে পেমেন্ট মেথড দেওয়া হলো:", reply_markup=remove_markup)
+        bot.send_message(chat_id, "টাকা তোলার মাধ্যম সিলেক্ট করুন:", reply_markup=remove_markup)
         bot.send_message(chat_id, "💰 *পেমেন্ট বা রিচার্জ মাধ্যম সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📌 সাপোর্ট":
@@ -752,6 +753,14 @@ def callback_query(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
+
+    if data == "back_to_main_menu":
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
+        main_menu(chat_id, "❌ *মেনুতে ফিরে আসা হয়েছে!*")
+        return
 
     if data == "verify_sub":
         if check_user_subscription(user_id):
