@@ -108,7 +108,14 @@ def get_prizes():
         default_prizes = {"1": 50.0, "2": 30.0, "3": 20.0}
         settings_collection.update_one({"setting_type": "prizes"}, {"$set": default_prizes}, upsert=True)
         return default_prizes
-    return {"1": s.get("1", 50.0), "2": s.get("2", 30.0), "3": s.get("3", 20.0)}
+    return {"1": float(s.get("1", 50.0)), "2": float(s.get("2", 30.0)), "3": float(s.get("3", 20.0))}
+
+def update_prize(position, amount):
+    settings_collection.update_one(
+        {"setting_type": "prizes"},
+        {"$set": {str(position): float(amount)}},
+        upsert=True
+    )
 
 def get_user_data(user_id, user_obj=None):
     try:
@@ -302,6 +309,23 @@ def handle_message(message):
 
     if user_id == ADMIN_ID and message.content_type == "text":
         text = message.text.strip()
+
+        if text.startswith("/setprize"):
+            parts = text.split()
+            if len(parts) == 3:
+                pos = parts[1]
+                if pos in ["1", "2", "3"]:
+                    try:
+                        amt = float(parts[2])
+                        update_prize(pos, amt)
+                        bot.send_message(chat_id, f"✅ সফলভাবে লিডারবোর্ডের {pos}ম পুরস্কারের পরিমাণ `{amt:.2f} BDT` সেট করা হয়েছে।", parse_mode="Markdown")
+                    except ValueError:
+                        bot.send_message(chat_id, "❌ সঠিক পরিমাণ সংখ্যা দিন। যেমন: `/setprize 1 60`", parse_mode="Markdown")
+                else:
+                    bot.send_message(chat_id, "❌ পজিশন শুধু 1, 2 অথবা 3 হতে পারবে। যেমন: `/setprize 1 60`", parse_mode="Markdown")
+            else:
+                bot.send_message(chat_id, "❌ সঠিক ফরম্যাটে লিখুন। উদাহরণ: `/setprize 1 60`", parse_mode="Markdown")
+            return
 
         if text.startswith("/setcookieprice"):
             parts = text.split()
@@ -726,7 +750,6 @@ def handle_message(message):
     elif text == "💼 কাজ":
         c_price = get_cookie_task_price()
         t_price = get_2fa_task_price()
-        # মেইন মেনুর কিবোর্ড সরিয়ে নিচে কাজের অপশন এবং ফিরে যান/বাতিল কিবোর্ড সেট করা হলো
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         markup.add(
             types.KeyboardButton(f"👥 ফেসবুক কুকিজ কাজ ({c_price:.2f} BDT)"),
@@ -764,7 +787,6 @@ def handle_message(message):
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif text == "📤 উত্তোলন":
-        # মেইন মেনুর কিবোর্ড সরিয়ে নিচে বিকাশ, নগদ, রিচার্জ এবং ফিরে যান কিবোর্ড সেট করা হলো
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         markup.add(
             types.KeyboardButton("💰 বিকাশ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)"),
@@ -808,7 +830,7 @@ def handle_message(message):
                 types.KeyboardButton("🟢 টেলিটক (Teletalk)"),
                 types.KeyboardButton("❌ ফিরে যান")
             )
-            update_user_data(user_id, {"withdraw_method": "মোviol রিচার্জ"})
+            update_user_data(user_id, {"withdraw_method": "মোবাইল রিচার্জ"})
             bot.send_message(chat_id, "📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
 
     elif text in ["🔵 গ্রামীণফোন (GP)", "🔴 রবি (Robi)", "⭕ এয়ারটেল (Airtel)", "🟠 বাংলালিংক (Banglalink)", "🟢 টেলিটক (Teletalk)"]:
