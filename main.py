@@ -74,7 +74,7 @@ def update_current_password(new_pass):
 def get_2fa_status():
     s = settings_collection.find_one({"setting_type": "2fa_status"})
     if not s:
-        return True # বাই ডিফল্ট চালু থাকবে
+        return True 
     return s.get("is_active", True)
 
 def set_2fa_status(status: bool):
@@ -87,9 +87,6 @@ def get_prizes():
         settings_collection.update_one({"setting_type": "prizes"}, {"$set": default_prizes}, upsert=True)
         return default_prizes
     return {"1": s.get("1", 50.0), "2": s.get("2", 30.0), "3": s.get("3", 20.0)}
-
-def update_prize(rank, amount):
-    settings_collection.update_one({"setting_type": "prizes"}, {"$set": {str(rank): float(amount)}}, upsert=True)
 
 def get_user_data(user_id, user_obj=None):
     try:
@@ -168,8 +165,8 @@ def update_user_data(user_id, update_dict):
 
 submitted_uids = set()
 
-ADMIN_ID = 8449043852  # আপনার অ্যাডমিন আইডি
-ADMIN_USERNAME = "@Ruman_Hasan_45" # সাপোর্টে যোগাযোগের জন্য অ্যাডমিন ইউজারনেম
+ADMIN_ID = 8449043852  
+ADMIN_USERNAME = "@Ruman_Hasan_45" 
 
 FORCE_CHANNEL_USERNAME = "@R4_Work_Sapait"
 FORCE_CHANNEL_LINK = "https://t.me/R4_Work_Sapait"
@@ -179,7 +176,6 @@ TWOFA_TASK_PRICE = 5.40
 
 MIN_WITHDRAW = 100.0
 MIN_RECHARGE = 20.0
-WITHDRAW_FEE = 5.00
 
 def parse_bangla_number(text):
     bangla_to_eng = {'০':'0', '১':'1', '২':'2', '৩':'3', '৪':'4', '৫':'5', '৬':'6', '৭':'7', '৮':'8', '৯':'9'}
@@ -285,7 +281,6 @@ def handle_message(message):
         )
         return
 
-    # --- ADMIN TEXT COMMANDS & CLEANED ADMIN PANEL WITH WITHDRAW PENDING ---
     if user_id == ADMIN_ID and message.content_type == "text":
         text = message.text.strip()
 
@@ -342,69 +337,11 @@ def handle_message(message):
             bot.send_message(chat_id, f"✅ আজকের নতুন পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে: `{text}`", parse_mode="Markdown")
             return
 
-        if text.startswith("/setpass "):
-            new_pass = text.replace("/setpass ", "").strip()
-            if new_pass:
-                update_current_password(new_pass)
-                bot.send_message(chat_id, f"✅ নতুন পাসওয়ার্ড সেট করা হয়েছে: `{new_pass}`", parse_mode="Markdown")
-            return
-
-        if text.startswith("/setbal "):
-            try:
-                parts = text.split()
-                target_id = int(parts[1])
-                new_val = float(parts[2])
-                users_collection.update_one({"user_id": target_id}, {"$set": {"balance": new_val}}, upsert=True)
-                bot.send_message(chat_id, f"✅ User ID: `{target_id}` এর ব্যালেন্স আপডেট করে `{new_val} BDT` করা হয়েছে।", parse_mode="Markdown")
-            except Exception:
-                bot.send_message(chat_id, "❌ সঠিক নিয়মে লিখুন। উদাহরণ: `/setbal 123456789 50`", parse_mode="Markdown")
-            return
-
-        if text.startswith("/setcomtasks "):
-            try:
-                parts = text.split()
-                target_id = int(parts[1])
-                new_val = int(parts[2])
-                users_collection.update_one({"user_id": target_id}, {"$set": {"completed_tasks": new_val}}, upsert=True)
-                bot.send_message(chat_id, f"✅ User ID: `{target_id}` এর সম্পন্ন কাজ `{new_val}` টি করা হয়েছে।", parse_mode="Markdown")
-            except Exception:
-                bot.send_message(chat_id, "❌ সঠিক নিয়মে লিখুন। উদাহরণ: `/setcomtasks 123456789 5`", parse_mode="Markdown")
-            return
-
-        if text.startswith("/setpentasks "):
-            try:
-                parts = text.split()
-                target_id = int(parts[1])
-                new_val = int(parts[2])
-                users_collection.update_one({"user_id": target_id}, {"$set": {"pending_tasks": new_val}}, upsert=True)
-                bot.send_message(chat_id, f"✅ User ID: `{target_id}` এর রিভিউতে থাকা কাজ `{new_val}` টি করা হয়েছে।", parse_mode="Markdown")
-            except Exception:
-                bot.send_message(chat_id, "❌ সঠিক নিয়মে লিখুন। উদাহরণ: `/setpentasks 123456789 0`", parse_mode="Markdown")
-            return
-
-        if text.startswith("/notice "):
-            notice_text = text.replace("/notice ", "").strip()
-            if notice_text:
-                all_users = users_collection.find()
-                for u in all_users:
-                    try:
-                        bot.send_message(int(u["user_id"]), f"📢 *বিশেষ ঘোষণা / নোটিশ*\n\n{notice_text}", parse_mode="Markdown")
-                    except Exception:
-                        pass
-                bot.send_message(chat_id, "✅ নোটিশ পাঠানো সম্পন্ন!", parse_mode="Markdown")
-            return
-
     if message.content_type != "text":
         return
 
     text = message.text.strip()
     user_state = user_data.get("state")
-
-    if user_id == ADMIN_ID and user_state == "setting_password":
-        update_user_data(user_id, {"state": None})
-        update_current_password(text)
-        bot.send_message(chat_id, f"✅ আজকের নতুন পাসওয়ার্ড সফলভাবে আপডেট করা হয়েছে: `{text}`", parse_mode="Markdown")
-        return
 
     if text == "❌ বাতিল":
         update_user_data(user_id, {"state": None})
@@ -437,10 +374,6 @@ def handle_message(message):
 
     # --- COOKIES TASK FLOW ---
     if user_state == "waiting_for_uid_cookie":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
-            return
-
         uid = text
         if not uid.isdigit() or len(uid) < 5 or len(uid) > 20:
             bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -456,10 +389,6 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_cookies":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
-            return
-
         update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_finish_cookie_button"})
         finish_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         finish_markup.add(types.KeyboardButton("অ্যাকাউন্ট খোলা শেষ"), types.KeyboardButton("❌ বাতিল"))
@@ -511,10 +440,6 @@ def handle_message(message):
 
     # --- 2FA TASK FLOW ---
     elif user_state == "waiting_for_uid_2fa":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *কাজের ভেতরে আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
-            return
-
         uid = text
         if not uid.isdigit() or len(uid) < 5 or len(uid) > 20:
             bot.send_message(chat_id, "❌ *সঠিক ফেসবুক UID দিন অথবা '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
@@ -530,10 +455,6 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_cookies_2fa":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *কুকিজ দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
-            return
-
         update_user_data(user_id, {"temp_cookies": text, "state": "waiting_for_2fa_key"})
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
@@ -541,10 +462,6 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_2fa_key":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *2FA Key দিন অথবা বাতিল করুন।*", parse_mode="Markdown")
-            return
-
         key_clean = text.replace(" ", "").upper()
         if not (re.match(r"^[A-Z2-7]+$", key_clean) and len(key_clean) in [16, 32]):
             bot.send_message(chat_id, "❌ *সঠিক 2FA Key দিন (অবশ্যই ১৬ বা ৩২ অক্ষরের এবং সব বড় হাতের হতে হবে)...*", parse_mode="Markdown")
@@ -617,10 +534,6 @@ def handle_message(message):
 
     # --- RECHARGE / WITHDRAW STATES ---
     elif user_state == "waiting_for_recharge_number":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
-            return
-
         phone = text.strip()
         if not re.match(r"^01[3-9]\d{8}$", phone):
             bot.send_message(chat_id, "❌ *সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন (যেমন: 01934546320)।*", parse_mode="Markdown")
@@ -635,10 +548,6 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_recharge_amount":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
-            return
-
         amount = parse_bangla_number(text)
         if amount is None:
             bot.send_message(chat_id, "❌ *দয়া করে সঠিক সংখ্যায় পরিমাণ লিখুন।*", parse_mode="Markdown")
@@ -687,10 +596,6 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_withdraw_number":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *উইথড্র প্রক্রিয়ায় আছেন! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
-            return
-
         phone = text.strip()
         if not re.match(r"^01[3-9]\d{8}$", phone):
             bot.send_message(chat_id, "❌ *সঠিক ১১ ডিজিটের মোবাইল নম্বর দিন।*", parse_mode="Markdown")
@@ -704,10 +609,6 @@ def handle_message(message):
         return
 
     elif user_state == "waiting_for_withdraw_amount":
-        if text in ["💰 ব্যালেন্স", "💼 কাজ", "📤 উত্তোলন", "📌 সাপোর্ট", "🎁 Refer & Earn", "🏆 Leader Board", "🛠️ অ্যাডমিন প্যানেল", "👥 ফেসবুক কুকিজ কাজ", "🔐 ফেসবুক 2FA কাজ"]:
-            bot.send_message(chat_id, "⚠️ *প্রক্রিয়াধীন আছে! বাতিল করতে '❌ বাতিল' চাপুন।*", parse_mode="Markdown")
-            return
-
         amount = parse_bangla_number(text)
         if amount is None:
             bot.send_message(chat_id, "❌ *দয়া করে সঠিক সংখ্যায় পরিমাণ লিখুন।*", parse_mode="Markdown")
@@ -778,7 +679,7 @@ def handle_message(message):
             types.KeyboardButton(f"🔐 ফেসবুক 2FA কাজ ({TWOFA_TASK_PRICE:.2f} BDT)"),
             types.KeyboardButton("❌ বাতিল")
         )
-        bot.send_message(chat_id, "✅ *যেকোনো একটি কাজ সিলেক্ট করুন*[span_0](start_span)[span_0](end_span):", parse_mode="Markdown", reply_markup=markup)
+        bot.send_message(chat_id, "✅ *যেকোনো একটি কাজ সিলেক্ট করুন*:", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "👥 ফেসবুক কুকিজ কাজ":
         current_pass = get_current_password()
@@ -1029,4 +930,3 @@ if __name__ == "__main__":
 
     print("Bot is running perfectly...")
     bot.infinity_polling()
-
