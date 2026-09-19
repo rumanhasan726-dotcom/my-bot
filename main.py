@@ -70,6 +70,29 @@ def get_current_password():
 def update_current_password(new_pass):
     settings_collection.update_one({"setting_type": "app_password"}, {"$set": {"password": new_pass}}, upsert=True)
 
+# টাস্ক প্রাইস ম্যানেজ করার ফাংশন (ডাটাবেজ থেকে রিড ও আপডেট)
+def get_cookie_task_price():
+    s = settings_collection.find_one({"setting_type": "cookie_price"})
+    if not s:
+        default_price = 4.80
+        settings_collection.update_one({"setting_type": "cookie_price"}, {"$set": {"price": default_price}}, upsert=True)
+        return default_price
+    return float(s.get("price", 4.80))
+
+def update_cookie_task_price(new_price):
+    settings_collection.update_one({"setting_type": "cookie_price"}, {"$set": {"price": float(new_price)}}, upsert=True)
+
+def get_2fa_task_price():
+    s = settings_collection.find_one({"setting_type": "2fa_price"})
+    if not s:
+        default_price = 5.40
+        settings_collection.update_one({"setting_type": "2fa_price"}, {"$set": {"price": default_price}}, upsert=True)
+        return default_price
+    return float(s.get("price", 5.40))
+
+def update_2fa_task_price(new_price):
+    settings_collection.update_one({"setting_type": "2fa_price"}, {"$set": {"price": float(new_price)}}, upsert=True)
+
 # 2FA কাজের স্ট্যাটাস চেক ও আপডেট করার ফাংশন
 def get_2fa_status():
     s = settings_collection.find_one({"setting_type": "2fa_status"})
@@ -170,9 +193,6 @@ ADMIN_USERNAME = "@Ruman_Hasan_45"
 
 FORCE_CHANNEL_USERNAME = "@R4_Work_Sapait"
 FORCE_CHANNEL_LINK = "https://t.me/R4_Work_Sapait"
-
-COOKIE_TASK_PRICE = 4.80
-TWOFA_TASK_PRICE = 5.40
 
 MIN_WITHDRAW = 100.0
 MIN_RECHARGE = 20.0
@@ -283,6 +303,34 @@ def handle_message(message):
 
     if user_id == ADMIN_ID and message.content_type == "text":
         text = message.text.strip()
+
+        if text.startswith("/setcookieprice"):
+            parts = text.split()
+            if len(parts) > 1:
+                try:
+                    new_p = float(parts[1])
+                    update_cookie_task_price(new_p)
+                    bot.send_message(chat_id, f"✅ কুকিজ টাস্কের নতুন মূল্য সফলভাবে সেট করা হয়েছে: `{new_p:.2f} BDT`", parse_mode="Markdown")
+                except ValueError:
+                    bot.send_message(chat_id, "❌ সঠিক সংখ্যা দিন। যেমন: `/setcookieprice 5.00`", parse_mode="Markdown")
+            else:
+                current_p = get_cookie_task_price()
+                bot.send_message(chat_id, f"বর্তমান কুকিজ টাস্ক মূল্য: `{current_p:.2f} BDT`\nপরিবর্তন করতে এভাবে লিখুন: `/setcookieprice 5.00`", parse_mode="Markdown")
+            return
+
+        if text.startswith("/set2faprice"):
+            parts = text.split()
+            if len(parts) > 1:
+                try:
+                    new_p = float(parts[1])
+                    update_2fa_task_price(new_p)
+                    bot.send_message(chat_id, f"✅ 2FA টাস্কের নতুন মূল্য সফলভাবে সেট করা হয়েছে: `{new_p:.2f} BDT`", parse_mode="Markdown")
+                except ValueError:
+                    bot.send_message(chat_id, "❌ সঠিক সংখ্যা দিন। যেমন: `/set2faprice 6.00`", parse_mode="Markdown")
+            else:
+                current_p = get_2fa_task_price()
+                bot.send_message(chat_id, f"বর্তমান 2FA টাস্ক মূল্য: `{current_p:.2f} BDT`\nপরিবর্তন করতে এভাবে লিখুন: `/set2faprice 6.00`", parse_mode="Markdown")
+            return
 
         if text == "🛠️ অ্যাডমিন প্যানেল":
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
@@ -401,6 +449,7 @@ def handle_message(message):
             uid = current_data.get("temp_uid")
             cookies = current_data.get("temp_cookies")
             uname = message.from_user.username or "None"
+            current_cookie_price = get_cookie_task_price()
 
             submitted_uids.add(uid)
             
@@ -411,7 +460,7 @@ def handle_message(message):
                 "uid": uid,
                 "cookies": cookies,
                 "2fa_key": "",
-                "price": COOKIE_TASK_PRICE,
+                "price": current_cookie_price,
                 "status": "pending",
                 "created_at": datetime.now(BD_TZ)
             }
@@ -425,7 +474,7 @@ def handle_message(message):
                 f"👤 ইউজার ID: `{user_id}`\n"
                 f"🌐 ইউজারনেম: @{uname}\n"
                 f"📌 UID: `{uid}`\n"
-                f"💵 মূল্য: {COOKIE_TASK_PRICE:.2f} BDT\n\n"
+                f"💵 মূল্য: {current_cookie_price:.2f} BDT\n\n"
                 f"🛡️ কুকিজ:\n`{cookies}`"
             )
             markup = types.InlineKeyboardMarkup()
@@ -494,6 +543,7 @@ def handle_message(message):
             cookies = current_data.get("temp_cookies")
             key_clean = current_data.get("temp_2fa_key")
             uname = message.from_user.username or "None"
+            current_2fa_price = get_2fa_task_price()
 
             submitted_uids.add(uid)
             
@@ -504,7 +554,7 @@ def handle_message(message):
                 "uid": uid,
                 "cookies": cookies,
                 "2fa_key": key_clean,
-                "price": TWOFA_TASK_PRICE,
+                "price": current_2fa_price,
                 "status": "pending",
                 "created_at": datetime.now(BD_TZ)
             }
@@ -519,7 +569,7 @@ def handle_message(message):
                 f"🌐 ইউজারনেম: @{uname}\n"
                 f"📌 UID: `{uid}`\n"
                 f"🔑 2FA Key: `{key_clean}`\n"
-                f"💵 মূল্য: {TWOFA_TASK_PRICE:.2f} BDT\n\n"
+                f"💵 মূল্য: {current_2fa_price:.2f} BDT\n\n"
                 f"🛡️ কুকিজ:\n`{cookies}`"
             )
             
@@ -675,15 +725,17 @@ def handle_message(message):
         bot.send_message(chat_id, reply_text, parse_mode="Markdown")
 
     elif text == "💼 কাজ":
+        c_price = get_cookie_task_price()
+        t_price = get_2fa_task_price()
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         markup.add(
-            types.KeyboardButton(f"👥 ফেসবুক কুকিজ কাজ ({COOKIE_TASK_PRICE:.2f} BDT)"),
-            types.KeyboardButton(f"🔐 ফেসবুক 2FA কাজ ({TWOFA_TASK_PRICE:.2f} BDT)"),
+            types.KeyboardButton(f"👥 ফেসবুক কুকিজ কাজ ({c_price:.2f} BDT)"),
+            types.KeyboardButton(f"🔐 ফেসবুক 2FA কাজ ({t_price:.2f} BDT)"),
             types.KeyboardButton("❌ বাতিল")
         )
         bot.send_message(chat_id, "✅ *যেকোনো একটি কাজ সিলেক্ট করুন*:", parse_mode="Markdown", reply_markup=markup)
 
-    elif text == f"👥 ফেসবুক কুকিজ কাজ ({COOKIE_TASK_PRICE:.2f} BDT)" or text == "👥 ফেসবুক কুকিজ কাজ":
+    elif text.startswith("👥 ফেসবুক কুকিজ কাজ"):
         current_pass = get_current_password()
         update_user_data(user_id, {"state": "waiting_for_uid_cookie", "task_type": "cookie", "task_password": current_pass})
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -695,7 +747,7 @@ def handle_message(message):
         )
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
-    elif text == f"🔐 ফেসবুক 2FA কাজ ({TWOFA_TASK_PRICE:.2f} BDT)" or text == "🔐 ফেসবুক 2FA কাজ":
+    elif text.startswith("🔐 ফেসবুক 2FA কাজ"):
         if not get_2fa_status():
             bot.send_message(chat_id, "🚫 *দুঃখিত, বর্তমানে ফেসবুক 2FA কাজ বন্ধ আছে। পরবর্তী আপডেটের জন্য অপেক্ষা করুন।*", parse_mode="Markdown")
             return
@@ -718,7 +770,6 @@ def handle_message(message):
         markup.add(types.InlineKeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০টাকা", callback_data="withdraw_recharge"))
         markup.add(types.InlineKeyboardButton("🔙 ফিরে যান", callback_data="back_to_main_menu"))
         
-        # এখানে Reply কিবোর্ড হাইড করে ইনলাইন কিবোর্ড পাঠানো হচ্ছে
         remove_markup = types.ReplyKeyboardRemove()
         bot.send_message(chat_id, "টাকা তোলার মাধ্যম সিলেক্ট করুন:", reply_markup=remove_markup)
         bot.send_message(chat_id, "💰 *পেমেন্ট বা রিচার্জ মাধ্যম সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
