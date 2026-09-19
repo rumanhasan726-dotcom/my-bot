@@ -70,7 +70,7 @@ def get_current_password():
 def update_current_password(new_pass):
     settings_collection.update_one({"setting_type": "app_password"}, {"$set": {"password": new_pass}}, upsert=True)
 
-# টাস্ক প্রাইস ম্যানেজ করার ফাংশন (ডাটাবেজ থেকে রিড ও আপডেট)
+# টাস্ক প্রাইস ম্যানেজ করার ফাংশন
 def get_cookie_task_price():
     s = settings_collection.find_one({"setting_type": "cookie_price"})
     if not s:
@@ -93,7 +93,6 @@ def get_2fa_task_price():
 def update_2fa_task_price(new_price):
     settings_collection.update_one({"setting_type": "2fa_price"}, {"$set": {"price": float(new_price)}}, upsert=True)
 
-# 2FA কাজের স্ট্যাটাস চেক ও আপডেট করার ফাংশন
 def get_2fa_status():
     s = settings_collection.find_one({"setting_type": "2fa_status"})
     if not s:
@@ -391,7 +390,7 @@ def handle_message(message):
     text = message.text.strip()
     user_state = user_data.get("state")
 
-    if text == "❌ বাতিল":
+    if text == "❌ বাতিল" or text == "❌ ফিরে যান":
         update_user_data(user_id, {"state": None})
         main_menu(chat_id, "❌ *মেনুতে ফিরে আসা হয়েছে!*")
         return
@@ -727,11 +726,12 @@ def handle_message(message):
     elif text == "💼 কাজ":
         c_price = get_cookie_task_price()
         t_price = get_2fa_task_price()
+        # মেইন মেনুর কিবোর্ড সরিয়ে নিচে কাজের অপশন এবং ফিরে যান/বাতিল কিবোর্ড সেট করা হলো
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         markup.add(
             types.KeyboardButton(f"👥 ফেসবুক কুকিজ কাজ ({c_price:.2f} BDT)"),
             types.KeyboardButton(f"🔐 ফেসবুক 2FA কাজ ({t_price:.2f} BDT)"),
-            types.KeyboardButton("❌ বাতিল")
+            types.KeyboardButton("❌ ফিরে যান")
         )
         bot.send_message(chat_id, "✅ *যেকোনো একটি কাজ সিলেক্ট করুন*:", parse_mode="Markdown", reply_markup=markup)
 
@@ -764,17 +764,59 @@ def handle_message(message):
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif text == "📤 উত্তোলন":
-        markup = types.InlineKeyboardMarkup(row_width=1)
+        # মেইন মেনুর কিবোর্ড সরিয়ে নিচে বিকাশ, নগদ, রিচার্জ এবং ফিরে যান কিবোর্ড সেট করা হলো
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         markup.add(
-            types.InlineKeyboardButton("💰 বিকাশ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)", callback_data="withdraw_bkash"),
-            types.InlineKeyboardButton("💰 নগদ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)", callback_data="withdraw_nagad"),
-            types.InlineKeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০৳", callback_data="withdraw_recharge"),
-            types.InlineKeyboardButton("❌ ফিরে যান", callback_data="back_to_main_menu")
+            types.KeyboardButton("💰 বিকাশ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)"),
+            types.KeyboardButton("💰 নগদ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)"),
+            types.KeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০৳"),
+            types.KeyboardButton("❌ ফিরে যান")
         )
-        
-        remove_markup = types.ReplyKeyboardRemove()
-        bot.send_message(chat_id, "টাকা তোলার মাধ্যম সিলেক্ট করুন:", reply_markup=remove_markup)
         bot.send_message(chat_id, "💰 *পেমেন্ট বা রিচার্জ মাধ্যম সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
+
+    elif "বিকাশ" in text:
+        user_data = get_user_data(user_id, message.from_user)
+        if user_data["balance"] < MIN_WITHDRAW:
+            bot.send_message(chat_id, f"❌ *সর্বনিম্ন সীমা {MIN_WITHDRAW} BDT*", parse_mode="Markdown")
+        else:
+            update_user_data(user_id, {"withdraw_method": "বিকাশ", "operator": "", "state": "waiting_for_withdraw_number"})
+            cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+            bot.send_message(chat_id, "📱 *আপনার ১১ ডিজিটের বিকাশ নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
+
+    elif "নগদ" in text:
+        user_data = get_user_data(user_id, message.from_user)
+        if user_data["balance"] < MIN_WITHDRAW:
+            bot.send_message(chat_id, f"❌ *সর্বনিম্ন সীমা {MIN_WITHDRAW} BDT*", parse_mode="Markdown")
+        else:
+            update_user_data(user_id, {"withdraw_method": "নগদ", "operator": "", "state": "waiting_for_withdraw_number"})
+            cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+            bot.send_message(chat_id, "📱 *আপনার ১১ ডিজিটের নগদ নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
+
+    elif "মোবাইল রিচার্জ" in text:
+        user_data = get_user_data(user_id, message.from_user)
+        if user_data["balance"] < MIN_RECHARGE:
+            bot.send_message(chat_id, f"❌ *সর্বনিম্ন রিচার্জ সীমা {MIN_RECHARGE} BDT*", parse_mode="Markdown")
+        else:
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            markup.add(
+                types.KeyboardButton("🔵 গ্রামীণফোন (GP)"),
+                types.KeyboardButton("🔴 রবি (Robi)"),
+                types.KeyboardButton("⭕ এয়ারটেল (Airtel)"),
+                types.KeyboardButton("🟠 বাংলালিংক (Banglalink)"),
+                types.KeyboardButton("🟢 টেলিটক (Teletalk)"),
+                types.KeyboardButton("❌ ফিরে যান")
+            )
+            update_user_data(user_id, {"withdraw_method": "মোviol রিচার্জ"})
+            bot.send_message(chat_id, "📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
+
+    elif text in ["🔵 গ্রামীণফোন (GP)", "🔴 রবি (Robi)", "⭕ এয়ারটেল (Airtel)", "🟠 বাংলালিংক (Banglalink)", "🟢 টেলিটক (Teletalk)"]:
+        operator_name = text.split(" ")[1]
+        update_user_data(user_id, {"operator": operator_name, "state": "waiting_for_recharge_number"})
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+        bot.send_message(chat_id, f"📱 *সিম সিলেক্ট করা হয়েছে: {operator_name}*\n\nআপনার **১১ ডিজিটের মোবাইল নম্বরটি** দিন:", parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif text == "📌 সাপোর্ট":
         support_text = (
@@ -806,14 +848,6 @@ def callback_query(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
-
-    if data == "back_to_main_menu":
-        try:
-            bot.delete_message(chat_id, call.message.message_id)
-        except Exception:
-            pass
-        main_menu(chat_id, "❌ *মেনুতে ফিরে আসা হয়েছে!*")
-        return
 
     if data == "verify_sub":
         if check_user_subscription(user_id):
@@ -853,60 +887,7 @@ def callback_query(call):
         bot.answer_callback_query(call.id, f"কোড কপি হয়েছে: {code_to_copy}", show_alert=True)
         return
 
-    if data == "withdraw_recharge":
-        user_data = get_user_data(user_id, call.from_user)
-        if user_data["balance"] < MIN_RECHARGE:
-            bot.answer_callback_query(call.id, "পর্যাপ্ত ব্যালেন্স নেই!", show_alert=True)
-            bot.send_message(chat_id, f"❌ *সর্বনিম্ন রিচার্জ সীমা {MIN_RECHARGE} BDT*", parse_mode="Markdown")
-        else:
-            markup = types.InlineKeyboardMarkup(row_width=2)
-            markup.add(
-                types.InlineKeyboardButton("🔵 গ্রামীণফোন (GP)", callback_data="op_Grameenphone"),
-                types.InlineKeyboardButton("🔴 রবি (Robi)", callback_data="op_Robi"),
-                types.InlineKeyboardButton("⭕ এয়ারটেল (Airtel)", callback_data="op_Airtel"),
-                types.InlineKeyboardButton("🟠 বাংলালিংক (Banglalink)", callback_data="op_Banglalink"),
-                types.InlineKeyboardButton("🟢 টেলিটক (Teletalk)", callback_data="op_Teletalk")
-            )
-            update_user_data(user_id, {"withdraw_method": "মোবাইল রিচার্জ"})
-            
-            try:
-                bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
-            except Exception:
-                bot.send_message(chat_id, "📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
-
-    elif data in ["withdraw_bkash", "withdraw_nagad"]:
-        method = "বিকাশ" if "bkash" in data else "নগদ"
-        user_data = get_user_data(user_id, call.from_user)
-        if user_data["balance"] < MIN_WITHDRAW:
-            bot.answer_callback_query(call.id, "পর্যাপ্ত ব্যালেন্স নেই!", show_alert=True)
-            bot.send_message(chat_id, f"❌ *সর্বনিম্ন সীমা {MIN_WITHDRAW} BDT*", parse_mode="Markdown")
-        else:
-            update_user_data(user_id, {"withdraw_method": method, "operator": "", "state": "waiting_for_withdraw_number"})
-            cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-            
-            try:
-                bot.delete_message(chat_id, call.message.message_id)
-            except Exception:
-                pass
-                
-            bot.send_message(chat_id, f"📱 *আপনার ১১ ডিজিটের {method} নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
-
-    elif data.startswith("op_"):
-        operator_name = data.replace("op_", "")
-        update_user_data(user_id, {"operator": operator_name, "state": "waiting_for_recharge_number"})
-        
-        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
-        
-        try:
-            bot.delete_message(chat_id, call.message.message_id)
-        except Exception:
-            pass
-            
-        bot.send_message(chat_id, f"📱 *সিম সিলেক্ট করা হয়েছে: {operator_name}*\n\nআপনার **১১ ডিজিটের মোবাইল নম্বরটি** দিন:", parse_mode="Markdown", reply_markup=cancel_markup)
-
-    elif data.startswith("approve_") and user_id == ADMIN_ID:
+    if data.startswith("approve_") and user_id == ADMIN_ID:
         parts = data.split("_")
         task_id = parts[1]
 
