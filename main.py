@@ -764,11 +764,13 @@ def handle_message(message):
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif text == "📤 উত্তোলন":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("বিকাশ -> সর্বনিম্ন ১০০টাকা (৫ টাকা চার্জ)", callback_data="withdraw_bkash"))
-        markup.add(types.InlineKeyboardButton("নগদ -> সর্বনিম্ন ১০০টাকা (৫ টাকা চার্জ)", callback_data="withdraw_nagad"))
-        markup.add(types.InlineKeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০টাকা", callback_data="withdraw_recharge"))
-        markup.add(types.InlineKeyboardButton("🔙 ফিরে যান", callback_data="back_to_main_menu"))
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("💰 বিকাশ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)", callback_data="withdraw_bkash"),
+            types.InlineKeyboardButton("💰 নগদ -> সর্বনিম্ন ১০০৳ (৫ টাকা চার্জ)", callback_data="withdraw_nagad"),
+            types.InlineKeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০৳", callback_data="withdraw_recharge"),
+            types.InlineKeyboardButton("❌ ফিরে যান", callback_data="back_to_main_menu")
+        )
         
         remove_markup = types.ReplyKeyboardRemove()
         bot.send_message(chat_id, "টাকা তোলার মাধ্যম সিলেক্ট করুন:", reply_markup=remove_markup)
