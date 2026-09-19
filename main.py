@@ -275,7 +275,7 @@ def handle_message(message):
         markup.add(types.InlineKeyboardButton("✅ Verify (চেক করুন)", callback_data="verify_sub"))
         bot.send_message(
             chat_id,
-            "⚠️ *বট ব্যবহার করতে হলে অবশ্যই নিচের চ্যানেলে জয়েন করতে হবে!*\nদয়া করে আগে জয়েন করুন।",
+            "⚠️ *বট ব্যবহার করতে হলে অবশ্যই নিচের চ্যানেলে জয়েন করতে হবে!*\nদয়া করে আগে জয়েন করুন.",
             parse_mode="Markdown",
             reply_markup=markup,
         )
@@ -301,7 +301,7 @@ def handle_message(message):
         if text == "📤 উইথড্র পেন্ডিং":
             pendings = list(withdraws_collection.find({"status": "pending"}))
             if not pendings:
-                bot.send_message(chat_id, "📭 কোনো পেন্ডিং উইথড্র রিকোয়েস্ট নেই।", parse_mode="Markdown")
+                bot.send_message(chat_id, "📭 কোনো পেন্ডিং উইথড্র রিকোয়েস্ট নেইলাইন।", parse_mode="Markdown")
                 return
             for p in pendings:
                 p_text = (
@@ -434,8 +434,10 @@ def handle_message(message):
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{task_id}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup)
-            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে! আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে।*", parse_mode="Markdown")
-            main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
+            
+            # ইউজারকে কাঙ্ক্ষিত সফল বার্তা প্রদান
+            bot.send_message(chat_id, "🎉 *আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে এবং গ্রহণ করা হয়েছে!*", parse_mode="Markdown")
+            main_menu(chat_id, "✨ *প্রধান মেনু:*")
         return
 
     # --- 2FA TASK FLOW ---
@@ -528,8 +530,10 @@ def handle_message(message):
                 types.InlineKeyboardButton("❌ ভুল (Reject)", callback_data=f"reject_{task_id}")
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup_admin)
-            bot.send_message(chat_id, "🎉 *টাস্ক সফলভাবে জমা হয়েছে! আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে।*", parse_mode="Markdown")
-            main_menu(chat_id, "⏳ *রিভিউতে পাঠানো হয়েছে।*")
+            
+            # ইউজারকে কাঙ্ক্ষিত সফল বার্তা প্রদান
+            bot.send_message(chat_id, "🎉 *আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে এবং গ্রহণ করা হয়েছে!*", parse_mode="Markdown")
+            main_menu(chat_id, "✨ *প্রধান মেনু:*")
         return
 
     # --- RECHARGE / WITHDRAW STATES ---
@@ -681,7 +685,7 @@ def handle_message(message):
         )
         bot.send_message(chat_id, "✅ *যেকোনো একটি কাজ সিলেক্ট করুন*:", parse_mode="Markdown", reply_markup=markup)
 
-    elif text == "👥 ফেসবুক কুকিজ কাজ":
+    elif text == f"👥 ফেসবুক কুকিজ কাজ ({COOKIE_TASK_PRICE:.2f} BDT)" or text == "👥 ফেসবুক কুকিজ কাজ":
         current_pass = get_current_password()
         update_user_data(user_id, {"state": "waiting_for_uid_cookie", "task_type": "cookie", "task_password": current_pass})
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -693,7 +697,7 @@ def handle_message(message):
         )
         bot.send_message(chat_id, task_msg, parse_mode="Markdown", reply_markup=cancel_markup)
 
-    elif text == "🔐 ফেসবুক 2FA কাজ":
+    elif text == f"🔐 ফেসবুক 2FA কাজ ({TWOFA_TASK_PRICE:.2f} BDT)" or text == "🔐 ফেসবুক 2FA কাজ":
         if not get_2fa_status():
             bot.send_message(chat_id, "🚫 *দুঃখিত, বর্তমানে ফেসবুক 2FA কাজ বন্ধ আছে। পরবর্তী আপডেটের জন্য অপেক্ষা করুন।*", parse_mode="Markdown")
             return
@@ -930,4 +934,3 @@ if __name__ == "__main__":
 
     print("Bot is running perfectly...")
     bot.infinity_polling()
-
