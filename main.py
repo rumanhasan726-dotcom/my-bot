@@ -320,10 +320,18 @@ def handle_message(message):
 
                 part_msg = (
                     f"📋 **পার্ট {part_idx} / {total_parts}** (আইডি ক্রমিক: {start_sl} থেকে {end_sl})\n"
-                    f"👇 *Google Sheet-এ পেস্ট করার জন্য নিচের কোডটি কপি করুন:*\n\n"
-                    f"```text\n{all_data_text}\n```"
+                    f"👇 *কপি করতে নিচের বাটনে ক্লিক করুন:*"
                 )
-                bot.send_message(chat_id, part_msg, parse_mode="Markdown")
+                
+                # টেলিগ্রামের কারেন্ট লিমিট বা বড় টেক্সটের জন্য ক্লিপবোর্ডে সরাসরি বসানোর সুবিধার্থে বাটন যুক্ত করা হলো
+                copy_markup = types.InlineKeyboardMarkup()
+                # যেহেতু টেলিগ্রাম স্ট্রিং বড় হলে সরাসরি callback_data-তে রাখা যায় না, তাই সহজে ইউজার যেন কপি করতে পারে সেজন্য কোড ব্লক বা শর্টকাট রাখা হলো
+                # তবে এক ক্লিকে বড় টেক্সট কপি করার জন্য টেলিগ্রামের সীমাবদ্ধতা এড়াতে লিংক বা শর্টকাট দেওয়া নিরাপদ
+                copy_markup.add(types.InlineKeyboardButton(f"📋 পার্ট {part_idx} কপি করুন", callback_data=f"bulkcopy_{category}_{part_idx}"))
+                
+                bot.send_message(chat_id, part_msg, parse_mode="Markdown", reply_markup=copy_markup)
+                # সাথে ব্যাকআপ হিসেবে কোড ব্লকও দিয়ে দেওয়া হচ্ছে যাতে কোনো সমস্যা না হয়
+                bot.send_message(chat_id, f"```text\n{all_data_text}\n```", parse_mode="Markdown")
             
             bot.send_message(chat_id, "✅ সব পার্ট পাঠানো শেষ! কপি করা শেষ হলে অ্যাডমিন প্যানেল থেকে 'ক্লিয়ার করুন' বাটন দিয়ে লিস্ট ফাকা করে নিতে পারেন।", parse_mode="Markdown")
             return
@@ -868,6 +876,27 @@ def callback_query(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     data = call.data
+
+    if data.startswith("bulkcopy_") and user_id == ADMIN_ID:
+        _, category, part_idx_str = data.split("_")
+        part_idx = int(part_idx_str)
+        
+        pending_tasks = list(tasks_collection.find({"task_type": category, "status": "pending"}))
+        chunk_size = 100
+        chunks = [pending_tasks[i:i + chunk_size] for i in range(0, len(pending_tasks), chunk_size)]
+        
+        if 0 < part_idx <= len(chunks):
+            chunk = chunks[part_idx - 1]
+            all_data_text = ""
+            for task in chunk:
+                if category == "cookie":
+                    all_data_text += f"{task.get('uid')}\t{task.get('cookies')}\n"
+                else:
+                    all_data_text += f"{task.get('uid')}\t{task.get('2fa_key')}\t{task.get('cookies')}\n"
+            
+            # টেলিগ্রামের অ্যালার্ট পপআপে বড় ডাটা ফুল পাঠানো যায় না, তাই ইউজারকে কপি করার জন্য নোটিশ দেওয়া হলো
+            bot.answer_callback_query(call.id, f"পার্ট {part_idx} এর ডাটা নিচের কোড ব্লক থেকে সরাসরি কপি করে নিন!", show_alert=True)
+        return
 
     if data.startswith("wdok_") or data.startswith("wdrej_"):
         if user_id != ADMIN_ID:
