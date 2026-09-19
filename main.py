@@ -159,6 +159,7 @@ def update_user_data(user_id, update_dict):
 submitted_uids = set()
 
 ADMIN_ID = 8449043852  # আপনার অ্যাডমিন আইডি
+ADMIN_USERNAME = "@Ruman_Hasan_45" # সাপোর্টে যোগাযোগের জন্য অ্যাডমিন ইউজারনেম
 
 FORCE_CHANNEL_USERNAME = "@R4_Work_Sapait"
 FORCE_CHANNEL_LINK = "https://t.me/R4_Work_Sapait"
@@ -299,18 +300,32 @@ def handle_message(message):
                 bot.send_message(chat_id, f"❌ বর্তমানে এই ক্যাটাগরির কোনো পেন্ডিং ডাটা নেই।")
                 return
 
-            all_data_text = ""
-            for idx, task in enumerate(pending_tasks, 1):
-                if category == "cookie":
-                    all_data_text += f"{task.get('uid')}\t{task.get('cookies')}\n"
-                else:
-                    all_data_text += f"{task.get('uid')}\t{task.get('2fa_key')}\t{task.get('cookies')}\n"
+            total_count = len(pending_tasks)
+            chunk_size = 100
+            chunks = [pending_tasks[i:i + chunk_size] for i in range(0, total_count, chunk_size)]
+            total_parts = len(chunks)
 
-            bot.send_message(
-                chat_id,
-                f"📋 **পেন্ডিং লিস্ট (Google Sheet এ এক ক্লিকে পেস্ট করার উপযোগী):**\n\n`{all_data_text}`\n\n*কপি করা শেষ হলে অ্যাডমিন প্যানেল থেকে 'ক্লিয়ার করুন' বাটনে চাপ দিয়ে এগুলো মুছে ফেলতে পারবেন।*",
-                parse_mode="Markdown"
-            )
+            bot.send_message(chat_id, f"📁 মোট **{total_count}টি** ডাটা পাওয়া গেছে। সেগুলোকে প্রতিবারে ১০০টি করে মোট **{total_parts}টি পার্টে** নিচে পাঠানো হচ্ছে:")
+
+            for part_idx, chunk in enumerate(chunks, 1):
+                all_data_text = ""
+                start_sl = ((part_idx - 1) * chunk_size) + 1
+                end_sl = min(part_idx * chunk_size, total_count)
+                
+                for task in chunk:
+                    if category == "cookie":
+                        all_data_text += f"{task.get('uid')}\t{task.get('cookies')}\n"
+                    else:
+                        all_data_text += f"{task.get('uid')}\t{task.get('2fa_key')}\t{task.get('cookies')}\n"
+
+                part_msg = (
+                    f"📋 **পার্ট {part_idx} / {total_parts}** (আইডি ক্রমিক: {start_sl} থেকে {end_sl})\n"
+                    f"👇 *Google Sheet-এ পেস্ট করার জন্য নিচের কোডটি কপি করুন:*\n\n"
+                    f"```text\n{all_data_text}\n```"
+                )
+                bot.send_message(chat_id, part_msg, parse_mode="Markdown")
+            
+            bot.send_message(chat_id, "✅ সব পার্ট পাঠানো শেষ! কপি করা শেষ হলে অ্যাডমিন প্যানেল থেকে 'ক্লিয়ার করুন' বাটন দিয়ে লিস্ট ফাকা করে নিতে পারেন।", parse_mode="Markdown")
             return
 
         if text in ["🗑️ কুকিজ ক্লিয়ার করুন", "🗑️ 2FA ক্লিয়ার করুন"]:
@@ -441,7 +456,6 @@ def handle_message(message):
     text = message.text.strip()
     user_state = user_data.get("state")
 
-    # যদি অ্যাডমিন পাসওয়ার্ড সেট করার স্টেটে থাকেন
     if user_id == ADMIN_ID and user_state == "setting_password":
         update_user_data(user_id, {"state": None})
         update_current_password(text)
@@ -828,11 +842,12 @@ def handle_message(message):
         support_text = (
             "🟢 *গ্রাহক সেবা কেন্দ্র*\n\n"
             "সম্মানিত মেম্বার,\n"
-            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন। we are online 24 hours.\n\n"
-            "🙇‍♂️ *অ্যাডমিন সাপোর্ট:* এডমিনের সাথে সরাসরি কথা বলতে চাইলে আপনাকে বট থেকে কমপক্ষে ৫০০ টাকা ইনকাম করতে হবে।"
+            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন। We are online 24 hours.\n\n"
+            f"⚠️ *বিশেষ দ্রষ্টব্য:* আপনার ব্যালেন্স বা মোট ইনকাম **৫০০ টাকা** বা তার বেশি হলে সরাসরি এডমিনের সাথে যোগাযোগ করুন: {ADMIN_USERNAME}"
         )
         support_markup = types.InlineKeyboardMarkup()
         support_markup.add(types.InlineKeyboardButton("📢 অফিসিয়াল চ্যানেল", url=FORCE_CHANNEL_LINK))
+        support_markup.add(types.InlineKeyboardButton("💬 এডমিনের সাথে যোগাযোগ", url=f"https://t.me/{ADMIN_USERNAME.replace('@', '')}"))
         bot.send_message(chat_id, support_text, parse_mode="Markdown", reply_markup=support_markup)
 
     elif text == "🎁 Refer & Earn":
