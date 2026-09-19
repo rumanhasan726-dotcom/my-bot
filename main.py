@@ -197,8 +197,8 @@ submitted_uids = set()
 ADMIN_ID = 8449043852  
 ADMIN_USERNAME = "@Ruman_Hasan_45" 
 
-FORCE_CHANNEL_USERNAME = "@R4_Work_Sapait"
-FORCE_CHANNEL_LINK = "https://t.me/R4_Work_Sapait"
+FORCE_CHANNEL_USERNAME = "@bd_work_oficial"
+FORCE_CHANNEL_LINK = "https://t.me/bd_work_oficial"
 
 MIN_WITHDRAW = 100.0
 MIN_RECHARGE = 20.0
