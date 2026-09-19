@@ -435,7 +435,6 @@ def handle_message(message):
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup)
             
-            # ইউজারকে কাঙ্ক্ষিত সফল বার্তা প্রদান
             bot.send_message(chat_id, "🎉 *আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে এবং গ্রহণ করা হয়েছে!*", parse_mode="Markdown")
             main_menu(chat_id, "✨ *প্রধান মেনু:*")
         return
@@ -531,7 +530,6 @@ def handle_message(message):
             )
             bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup_admin)
             
-            # ইউজারকে কাঙ্ক্ষিত সফল বার্তা প্রদান
             bot.send_message(chat_id, "🎉 *আপনার কাজটি সফলভাবে জমা নেওয়া হয়েছে এবং গ্রহণ করা হয়েছে!*", parse_mode="Markdown")
             main_menu(chat_id, "✨ *প্রধান মেনু:*")
         return
@@ -718,6 +716,10 @@ def handle_message(message):
         markup.add(types.InlineKeyboardButton("বিকাশ -> সর্বনিম্ন ১০০টাকা (৫ টাকা চার্জ)", callback_data="withdraw_bkash"))
         markup.add(types.InlineKeyboardButton("নগদ -> সর্বনিম্ন ১০০টাকা (৫ টাকা চার্জ)", callback_data="withdraw_nagad"))
         markup.add(types.InlineKeyboardButton("📱 মোবাইল রিচার্জ -> সর্বনিম্ন ২০টাকা", callback_data="withdraw_recharge"))
+        
+        # এখানে Reply কিবোর্ড হাইড করে ইনলাইন কিবোর্ড পাঠানো হচ্ছে
+        remove_markup = types.ReplyKeyboardRemove()
+        bot.send_message(chat_id, "নিচে পেমেন্ট মেথড দেওয়া হলো:", reply_markup=remove_markup)
         bot.send_message(chat_id, "💰 *পেমেন্ট বা রিচার্জ মাধ্যম সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📌 সাপোর্ট":
@@ -804,7 +806,11 @@ def callback_query(call):
                 types.InlineKeyboardButton("🟢 টেলিটক (Teletalk)", callback_data="op_Teletalk")
             )
             update_user_data(user_id, {"withdraw_method": "মোবাইল রিচার্জ"})
-            bot.send_message(chat_id, "📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
+            
+            try:
+                bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text="📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
+            except Exception:
+                bot.send_message(chat_id, "📱 *আপনার মোবাইল অপারেটর (সিম) সিলেক্ট করুন:*", parse_mode="Markdown", reply_markup=markup)
 
     elif data in ["withdraw_bkash", "withdraw_nagad"]:
         method = "বিকাশ" if "bkash" in data else "নগদ"
@@ -816,6 +822,12 @@ def callback_query(call):
             update_user_data(user_id, {"withdraw_method": method, "operator": "", "state": "waiting_for_withdraw_number"})
             cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+            
+            try:
+                bot.delete_message(chat_id, call.message.message_id)
+            except Exception:
+                pass
+                
             bot.send_message(chat_id, f"📱 *আপনার ১১ ডিজিটের {method} নম্বরটি দিন:*", parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif data.startswith("op_"):
@@ -824,6 +836,12 @@ def callback_query(call):
         
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         cancel_markup.add(types.KeyboardButton("❌ বাতিল"))
+        
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
+            
         bot.send_message(chat_id, f"📱 *সিম সিলেক্ট করা হয়েছে: {operator_name}*\n\nআপনার **১১ ডিজিটের মোবাইল নম্বরটি** দিন:", parse_mode="Markdown", reply_markup=cancel_markup)
 
     elif data.startswith("approve_") and user_id == ADMIN_ID:
